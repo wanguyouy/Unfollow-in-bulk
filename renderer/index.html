@@ -70,13 +70,20 @@
         <span class="badge-soft">实验 · 原始流直存,不解密</span>
       </div>
       <div class="muted" style="line-height:1.7">
-        步骤:① 启动捕获(首次会自动安装本地证书) ② <strong>完全退出并重新打开微信</strong> ③ 打开/切换任意视频号视频,下方自动列出捕获到的视频 ④ 点「下载」保存<strong>已解密</strong>的 MP4。<br>
-        下载前请先在微信里播放一次该视频(让页面加载完凖);若某项提示缺少 decodeKey,重新打开该视频详情页即可。
+        步骤:① <strong>彻底退出微信(含托盘)</strong> ② 点「缓存诊断」,若提示缓存存在则点「清 WebView 缓存」 ③ 启动捕获(首次自动装本地证书) ④ 打开微信进入视频号、<strong>播放或切换视频</strong> ⑤ 点「下载 / 补全导出」。<br>
+        <strong>为什么必须清缓存:</strong>视频号页面的 HTML / JS 若命中微信 WebView 磁盘缓存,浏览器根本不会发请求,代理也就注入不了、拿不到 decodeKey。清缓存只做<strong>可恢复的目录重命名</strong>,不删除任何文件。清完后播放视频会加载官方解密 worker,代理从播放器实际使用的 seed 取得该视频的 decodeKey —— 不依赖 feed 接口,也不复用别的视频的 key。
       </div>
       <div class="row" style="margin-top:12px">
         <button id="wxStartBtn" class="btn primary">启动捕获</button>
         <button id="wxStopBtn" class="btn ghost hidden">停止捕获</button>
         <button id="wxCertBtn" class="btn ghost">安装证书</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="wxCacheInfoBtn" class="btn ghost small">缓存诊断</button>
+        <button id="wxCacheClearBtn" class="btn ghost small">清 WebView 缓存(可恢复)</button>
+        <button id="wxCacheRestoreBtn" class="btn ghost small">恢复缓存</button>
+        <button id="wxDbKeyBtn" class="btn ghost small">从本地缓存补 key</button>
+        <button id="wxClearAllBtn" class="btn ghost small">清除捕获记录</button>
       </div>
       <div id="wxStatus" class="muted" style="margin-top:8px;user-select:text"></div>
       <div id="wxLog" class="wxlog"></div>
