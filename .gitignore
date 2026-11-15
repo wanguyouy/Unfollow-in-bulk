@@ -1,5 +1,9 @@
 node_modules/
 dist/
+test/_out/
+test/_demo/
+test/result.json
+test/*.log
 *.log
 *.part
 _ref_wxdl/

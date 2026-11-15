@@ -78,16 +78,16 @@ body {
 main {
   max-width: 880px;
   margin: 0 auto;
-  padding: 18px 20px 46px;
+  padding: 14px 20px 30px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .card {
   background: var(--card);
   border-radius: var(--radius, 14px);
-  padding: 18px 20px;
+  padding: 16px 18px;
   box-shadow: 0 1px 2px rgba(23, 33, 60, .04), 0 6px 20px rgba(23, 33, 60, .05);
   transition: box-shadow .2s;
 }
@@ -213,6 +213,39 @@ main {
 
 .summary { margin-top: 8px; line-height: 1.7; }
 
+/* 长说明折叠:默认只留一行,细节按需展开 */
+.more { margin-top: 8px; font-size: 12px; }
+.more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: #98a0ad;
+  list-style: none;
+  padding: 2px 0;
+  transition: color .15s;
+}
+.more > summary:hover { color: var(--pink); }
+.more > summary::-webkit-details-marker { display: none; }
+.more > summary::before {
+  content: '▸';
+  display: inline-block;
+  font-size: 10px;
+  transition: transform .15s;
+}
+.more[open] > summary::before { transform: rotate(90deg); }
+.more-body {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: #f7f8fb;
+  border-left: 2px solid var(--line);
+  border-radius: 0 8px 8px 0;
+  color: #8a919f;
+  line-height: 1.75;
+  user-select: text;
+}
+.more-body strong { color: #6f7684; font-weight: 600; }
+
 /* ---------- 平台徽章 ---------- */
 .plat-badge {
   display: inline-flex;
@@ -227,6 +260,8 @@ main {
 .plat-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .badge-bili { background: #fdeef3; color: #d63384; border: 1px solid #f9c9da; }
 .badge-dy { background: #161823; color: #25f4ee; border: 1px solid #161823; }
+.badge-ap { background: #e8f3ff; color: #1677ff; border: 1px solid #c2ddff; }
+.badge-tg { background: #e6f5fb; color: #0088cc; border: 1px solid #b6e3f5; }
 
 /* ---------- 进度 ---------- */
 .progress {
@@ -293,6 +328,37 @@ main {
 
 /* ---------- 视频信息 ---------- */
 .vtitle { font-weight: 600; margin-bottom: 4px; line-height: 1.55; user-select: text; }
+
+/* 抖音图集:解析后先给几张缩略图,确认点对了作品 */
+.img-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.img-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: #eef1f7;
+  display: block;
+}
+.img-more {
+  height: 64px;
+  min-width: 40px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  background: #f7f8fb;
+  color: #8a919f;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 
 /* ---------- 弹层 ---------- */
 .mask {
@@ -384,6 +450,106 @@ main {
   font-size: 11px;
   letter-spacing: 0.5px;
 }
+
+/* ---------- Telegram 本地缓存恢复 ---------- */
+.check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #6f7684;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.check-row input { cursor: pointer; }
+
+.tgl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(122px, 1fr));
+  gap: 8px;
+}
+/* 几百条结果:收进固定高度的滚动窗口,别把整页拉成一条长带 */
+.tgl-scroll {
+  max-height: 470px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-top: 10px;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: #c7cedd transparent;
+}
+.tgl-scroll::-webkit-scrollbar { width: 8px; }
+.tgl-scroll::-webkit-scrollbar-thumb { background: #c7cedd; border-radius: 4px; }
+.tgl-scroll::-webkit-scrollbar-track { background: transparent; }
+.tgl-scroll:empty { display: none; }
+
+.tgl-item {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.tgl-item:hover { border-color: #c3cede; transform: translateY(-1px); }
+.tgl-item.on { border-color: var(--pink); box-shadow: 0 0 0 2px rgba(251, 114, 153, .18); }
+
+.tgl-media {
+  display: block;
+  width: 100%;
+  height: 98px;
+  object-fit: cover;
+  background: #eef1f7;
+}
+.tgl-ph {
+  height: 98px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #eef1f7;
+  color: #a8b0c2;
+  font-size: 12px;
+  letter-spacing: .5px;
+}
+.tgl-meta {
+  padding: 4px 7px 6px;
+  font-size: 11px;
+  color: var(--sub);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tgl-tag {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  font-size: 10px;
+  background: rgba(20, 24, 36, .62);
+  color: #fff;
+  letter-spacing: .3px;
+}
+.tgl-tag.warn { background: rgba(232, 137, 26, .92); }
+.tgl-tick {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .9);
+  border: 1px solid #cfd6e3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: transparent;
+  line-height: 1;
+}
+.tgl-item.on .tgl-tick { background: var(--pink); border-color: var(--pink); color: #fff; }
 
 /* 捕获记录可能几十条:收进固定约 5 行高的滚动窗口,避免整页被拉长 */
 .wx-scroll {

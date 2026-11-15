@@ -13,7 +13,7 @@
       <span class="logo">▶</span>
       <div>
         <div class="brand-name">B 站助手</div>
-        <div class="brand-sub">视频下载 · 自动识别 哔哩哔哩 / 抖音</div>
+        <div class="brand-sub">视频下载 · 视频号 · 表情包</div>
       </div>
     </div>
     <div class="topbar-right">
@@ -31,11 +31,11 @@
     <section class="card">
       <div class="card-head">
         <span class="step step-blue">▶</span><h2>视频下载</h2>
-        <span class="badge-soft">自动识别 哔哩哔哩 / 抖音 · 一个输入框全搞定</span>
+        <span class="badge-soft">B站 / 抖音 / 支付宝 / Telegram</span>
       </div>
       <div class="row" style="align-items: flex-start">
         <textarea id="shareInput" rows="2" class="share-input"
-                  placeholder="粘贴 B 站或抖音的分享文案 / 链接(b23.tv、v.douyin.com 短链)、BV 号 / av 号 / 视频 ID"></textarea>
+                  placeholder="粘贴链接、分享文案，或 BV 号"></textarea>
         <button id="parseBtn" class="btn primary">解析</button>
       </div>
       <div id="platformBadge" class="plat-badge hidden"></div>
@@ -43,6 +43,7 @@
       <div id="videoPanel" class="hidden">
         <div id="vTitle" class="vtitle"></div>
         <div id="vMeta" class="muted"></div>
+        <div id="imgStrip" class="img-strip hidden"></div>
         <div id="biliOptions" class="grid2 hidden">
           <label id="pageWrap" class="hidden">分 P<select id="pageSel"></select></label>
           <label>清晰度<select id="qualitySel"></select></label>
@@ -57,26 +58,83 @@
         </div>
         <div id="dlStatus" class="muted"></div>
       </div>
-      <div class="muted" id="dlHint" style="margin-top:12px;line-height:1.7">
-        支持平台:B 站(b23.tv 短链、BV / av 号)与抖音(v.douyin.com 短链、视频链接);图集与直播暂不支持。<br>
-        提示:B 站高清画质需要登录(右上角「登录 B 站」);抖音公开视频无需登录。
+      <div class="muted" id="dlHint" style="margin-top:12px">B 站高清需登录；抖音、支付宝、Telegram 免登录。Telegram 需本机能连上（走系统代理）；私密频道走 MTProto 时本机需已登录 Telegram Desktop。</div>
+      <details class="more">
+        <summary>支持范围与限制</summary>
+        <div class="more-body">
+          B 站：b23.tv 短链、BV / av 号、视频链接；抖音：v.douyin.com 短链、视频链接、图文（图集）链接；支付宝：生活号 / 视频号分享链接（含 ur.lepudding.com 这类短链，会自动跟跳转识别）；Telegram：公开频道帖（t.me/频道名/帖号）。<br>
+          抖音图集会保存为一组 01.jpg / 02.jpg…（优先取无水印地址）。B 站高清画质需要登录，其他平台公开内容无需登录；直播暂不支持。<br>
+          Telegram 只有「开了网页预览」的公开频道能匿名解析；其余会自动回退到 MTProto（用本机 Telegram Desktop 的登录态直连服务器），私密频道/群只要这个账号在里面就能解析与下载。
+        </div>
+      </details>
+    </section>
+
+    <!-- Telegram 本地缓存恢复(离线:解本机 Telegram Desktop 缓存) -->
+    <section class="card" id="tgLocalCard">
+      <div class="card-head">
+        <span class="step step-blue">◱</span><h2>Telegram 本地缓存恢复</h2>
+        <span class="badge-soft">离线 · 私密频道也能取</span>
       </div>
+      <div class="muted hint">不联网。直接解本机 Telegram Desktop 落盘的缓存 —— 网页预览被关掉的频道/群，只要在本机看过，磁盘上就有。</div>
+      <div class="row">
+        <input id="tglPath" class="share-input" placeholder="tdata 路径（留空自动检测）">
+        <button id="tglScanBtn" class="btn primary">扫描本地缓存</button>
+      </div>
+      <div id="tglFilters" class="row hidden" style="margin-top:10px">
+        <label class="check-row"><input id="tglKImage" type="checkbox" checked> 图片 <span id="tglCImage" class="tag">0</span></label>
+        <label class="check-row"><input id="tglKVideo" type="checkbox" checked> 视频 <span id="tglCVideo" class="tag">0</span></label>
+        <label class="check-row"><input id="tglKAudio" type="checkbox" checked> 语音 <span id="tglCAudio" class="tag">0</span></label>
+        <label class="check-row" title="只保留能找到索引、ffmpeg 能解的 mp4。缓存里的 8MB 分片多数属于这一类之外"><input id="tglOnlyPlayable" type="checkbox"> 只看能播的视频</label>
+        <label class="check-row" title="表情、头像这类小文件非常多，按体积筛掉更清爽"><input id="tglSkipSmall" type="checkbox"> 隐藏 ≤20KB</label>
+        <button id="tglSelAllBtn" class="btn ghost small">全选</button>
+        <button id="tglSelNoneBtn" class="btn ghost small">清空</button>
+      </div>
+      <div class="row hidden" id="tglExportRow" style="margin-top:10px">
+        <button id="tglExportBtn" class="btn primary" disabled>导出选中</button>
+        <button id="tglPickBtn" class="btn ghost">选择导出目录</button>
+        <button id="tglOpenBtn" class="btn ghost hidden">打开导出目录</button>
+        <span id="tglDest" class="muted">默认导出到「桌面\Telegram本地缓存」</span>
+      </div>
+      <div id="tglStatus" class="muted" style="margin-top:8px;user-select:text"></div>
+      <div id="tglCount" class="muted"></div>
+      <div id="tglList" class="tgl-grid tgl-scroll"></div>
+      <div class="dl-row hidden" id="tglProgressWrap">
+        <span class="dl-label" id="tglStage">进度</span>
+        <div class="progress slim"><div id="tglBar" class="bar bar-blue"></div></div>
+        <span id="tglPct" class="muted dl-pct"></span>
+      </div>
+      <div id="tglLog" class="wxlog"></div>
+      <details class="more">
+        <summary>能取到什么 / 取不到什么</summary>
+        <div class="more-body">
+          <strong>能取到：</strong>图片（jpg/png/webp/gif）、圆视频（webm）、语音，都是从本机缓存解密出来的<b>完整</b>原文件。<br>
+          <strong>视频只能拿到一部分：</strong>视频按 8MB 分片存，文件名是缓存键的哈希、不含偏移，所以分片没法排序拼回整段；只有「索引在文件头」的那种能直接播，其余标注缺索引。<br>
+          <strong>应用锁：</strong>开了口令锁的 Telegram，本地密钥被口令包着，解不开 —— 先在设置里临时关掉应用锁再扫。<br>
+          <strong>隐私：</strong>全程只读本机文件、不联网、不上传；导出目录里的 index.html 可以直接在浏览器里翻看，manifest.json 是同一份清单。
+        </div>
+      </details>
     </section>
 
     <!-- 微信视频号(实验:捕获原始流直存,不解密) -->
     <section class="card" id="wxCard">
       <div class="card-head">
         <span class="step step-blue">⬇</span><h2>微信视频号下载</h2>
-        <span class="badge-soft">实验 · 原始流直存,不解密</span>
+        <span class="badge-soft">实验 · 直存原始流</span>
       </div>
-      <div class="muted" style="line-height:1.7">
-        步骤:① <strong>彻底退出微信(含托盘)</strong> ② 点「缓存诊断」,若提示缓存存在则点「清 WebView 缓存」 ③ 启动捕获(首次自动装本地证书) ④ 打开微信进入视频号、<strong>播放或切换视频</strong> ⑤ 点「下载 / 补全导出」。<br>
-        <strong>为什么必须清缓存:</strong>视频号页面的 HTML / JS 若命中微信 WebView 磁盘缓存,浏览器根本不会发请求,代理也就注入不了、拿不到 decodeKey。清缓存只做<strong>可恢复的目录重命名</strong>,不删除任何文件。清完后播放视频会加载官方解密 worker,代理从播放器实际使用的 seed 取得该视频的 decodeKey —— 不依赖 feed 接口,也不复用别的视频的 key。
-      </div>
+      <div class="muted">退出微信 → 清缓存 → 启动捕获 → 播放视频 → 导出。</div>
+      <details class="more">
+        <summary>为什么要清缓存 / 关于证书</summary>
+        <div class="more-body">
+          <strong>清缓存：</strong>视频号页面的 HTML / JS 若命中微信 WebView 磁盘缓存，浏览器不发请求，代理就注入不了、拿不到 decodeKey。清理只做可恢复的目录重命名，不删任何文件。<br>
+          <strong>怎样算拿到 key：</strong>日志出现 [WorkerKey] 或 [CacheDbKey]。每个视频的 key 独立，不会串用。<br>
+          <strong>证书：</strong>安装后本机信任一个本地根证书（仅当前用户），不用时点「卸载证书」移除。
+        </div>
+      </details>
       <div class="row" style="margin-top:12px">
         <button id="wxStartBtn" class="btn primary">启动捕获</button>
         <button id="wxStopBtn" class="btn ghost hidden">停止捕获</button>
         <button id="wxCertBtn" class="btn ghost">安装证书</button>
+        <button id="wxCertOffBtn" class="btn ghost" title="从当前用户根证书库移除本应用的本地根证书">卸载证书</button>
       </div>
       <div class="row" style="margin-top:8px">
         <button id="wxCacheInfoBtn" class="btn ghost small">缓存诊断</button>
@@ -94,14 +152,17 @@
     <section class="card" id="emojiCard">
       <div class="card-head">
         <span class="step step-blue">★</span><h2>表情包导出</h2>
-        <span class="badge-soft">微信收藏的表情 · 批量保存为图片</span>
+        <span class="badge-soft">微信收藏表情</span>
       </div>
-      <div class="muted" style="line-height:1.7">
-        把微信里收藏的全部自定义表情导出为图片文件(GIF/PNG/JPG,默认按每组 50 个分文件夹)。<br>
-        首次使用会自动下载开源导出工具 wxemoticon(约 3.7MB,来自 GitHub,下载后做哈希校验);
-        导出时工具需要读取微信进程获取数据库密钥,若杀毒软件弹提示请选择放行。已实测:无需管理员、无需退出微信。
-      </div>
-      <div id="emojiStatus" class="muted" style="margin-top:8px;user-select:text">点击「检测环境」开始。</div>
+      <div class="muted">首次会下载导出工具；杀软弹窗请放行，无需退出微信。</div>
+      <details class="more">
+        <summary>工具来源与权限</summary>
+        <div class="more-body">
+          首次使用自动下载开源工具 wxemoticon（约 3.7MB，来自 GitHub，下载后做哈希校验）；也可手动下载 zip 后点「从本地 zip 安装」。<br>
+          导出时工具需要读取微信进程获取数据库密钥，若杀毒软件弹提示请放行。已实测：无需管理员、无需退出微信。
+        </div>
+      </details>
+      <div id="emojiStatus" class="muted" style="margin-top:8px;user-select:text"></div>
       <div class="row" style="margin-top:12px">
         <button id="emojiCheckBtn" class="btn primary">检测环境</button>
         <select id="emojiAccount" class="hidden" style="max-width:240px"></select>
@@ -129,5 +190,6 @@
 
   <script src="common.js"></script>
   <script src="app.js"></script>
+  <script src="tgl-local.js"></script>
 </body>
 </html>

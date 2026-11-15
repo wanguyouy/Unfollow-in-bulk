@@ -22,15 +22,39 @@ contextBridge.exposeInMainWorld('bili', {
   onDlProgress: (cb) => ipcRenderer.on('dl:progress', (_e, p) => cb(p)),
   /* 窗口 */
   openUnfollow: () => ipcRenderer.invoke('unfollow:open'),
-  /* 抖音视频下载 */
+  /* 抖音(视频 / 图集) */
   resolveDyVideo: (text) => ipcRenderer.invoke('dyvideo:resolve', text),
-  fetchDyVideo: (id) => ipcRenderer.invoke('dyvideo:fetch', id),
+  fetchDyVideo: (id, kind) => ipcRenderer.invoke('dyvideo:fetch', id, kind),
   downloadDyVideo: (args) => ipcRenderer.invoke('dyvideo:download', args),
+  pickDir: (title) => ipcRenderer.invoke('dyvideo:pick-dir', title),
+  downloadDyImages: (args) => ipcRenderer.invoke('dyvideo:download-images', args),
+  /* 支付宝(生活号 / 视频号) */
+  fetchAlipay: (text) => ipcRenderer.invoke('alipay:fetch', text),
+  downloadAlipay: (args) => ipcRenderer.invoke('alipay:download', args),
+  /* Telegram(公开频道帖;预览关闭的频道会如实报错) */
+  fetchTelegram: (text) => ipcRenderer.invoke('telegram:fetch', text),
+  downloadTelegram: (args) => ipcRenderer.invoke('telegram:download', args),
+  saveTelegramPhoto: (args) => ipcRenderer.invoke('telegram:save-photo', args),
+  /* MTProto:用本机 tdata 已登录的授权解析/下载(私密频道、预览关闭的频道都能拿) */
+  fetchTelegramMt: (args) => ipcRenderer.invoke('telegram:mtfetch', args),
+  downloadTelegramMt: (args) => ipcRenderer.invoke('telegram:mtdownload', args),
+  /* Telegram 本地缓存恢复(离线:解本机 Telegram Desktop 的 tdata) */
+  tglProbe: (opts) => ipcRenderer.invoke('tglocal:probe', opts),
+  tglScan: (opts) => ipcRenderer.invoke('tglocal:scan', opts),
+  tglThumb: (id) => ipcRenderer.invoke('tglocal:thumb', id),
+  tglPickDir: () => ipcRenderer.invoke('tglocal:pick-dir'),
+  tglExport: (args) => ipcRenderer.invoke('tglocal:export', args),
+  tglOpen: (dir) => ipcRenderer.invoke('tglocal:open', dir),
+  onTglProgress: (cb) => ipcRenderer.on('tglocal:progress', (_e, p) => cb(p)),
+  /* 通用短链嗅探(自动判断落到哪个平台) */
+  sniffShare: (text) => ipcRenderer.invoke('share:sniff', text),
   /* 微信视频号(实验) */
   wxvStart: () => ipcRenderer.invoke('wxv:start'),
   wxvStop: () => ipcRenderer.invoke('wxv:stop'),
   wxvStatus: () => ipcRenderer.invoke('wxv:status'),
   wxvInstallCert: () => ipcRenderer.invoke('wxv:install-cert'),
+  wxvUninstallCert: () => ipcRenderer.invoke('wxv:uninstall-cert'),
+  wxvCertInfo: () => ipcRenderer.invoke('wxv:cert-info'),
   wxvDownload: (url, savePath, reqHeaders) => ipcRenderer.invoke('wxv:download', url, savePath, reqHeaders),
   wxvOpen: (p) => ipcRenderer.invoke('wxv:open', p),
   onWxvCaptured: (cb) => ipcRenderer.on('wxv:captured', (_e, info) => cb(info)),

@@ -8,10 +8,12 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
+    "pack": "electron-builder --win --dir",
     "dist": "electron-builder --win"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
@@ -27,9 +29,22 @@
       "main.js",
       "preload.js",
       "emoji-export.js",
+      "douyin-images.js",
+      "douyin-fetch.js",
+      "alipay-fetch.js",
+      "telegram-fetch.js",
+      "telegram-local.js",
+      "telegram-session.js",
+      "telegram-mtproto.js",
+      "telegram-authkey.js",
+      "telegram-dl.js",
       "wx-proxy.js",
+      "wxv-collect.js",
       "wxv-decrypt.js",
       "renderer/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/@ffmpeg-installer/**"
     ],
     "win": {
       "target": "nsis"

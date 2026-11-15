@@ -1,12 +1,22 @@
-/* 主界面:视频下载(B 站 / 抖音 自动识别) */
+/* 主界面:视频下载(B 站 / 抖音 / 支付宝 / Telegram 自动识别) */
 let dlRunning = false;
-let dlPlatform = null; // 'bilibili' | 'douyin'
+let dlPlatform = null; // 'bilibili' | 'douyin' | 'alipay' | 'telegram'
 let biliVideo = null;
 let biliPlay = null;
 let dyVideo = null;
+let apVideo = null;
+let tgVideo = null;
 
 function detectPlatform(text) {
   const t = String(text || '');
+  /* Telegram 排最前:t.me 的帖号很短(几位到十来位),
+     放着不管也会被下面的抖音 \d{16,} 之类误判的可能性不大,但先判更稳。 */
+  if (/(?:^|[/.\s])(?:t|telegram)\.me\//i.test(t) || /tg:\/\/resolve/i.test(t)) return 'telegram';
+  // 支付宝必须排在抖音之前:contentId 里的数字段(18 位)会命中下面的 \d{16,}
+  // 裸 contentId(8 位日期 + 2 位大写字母 + 数字,如 20261113OB02…)单独认一下,
+  // 否则会被当成抖音的作品 ID
+  if (/alipay\.com/i.test(t) || /alipays:/i.test(t) || /contentId=/i.test(t)) return 'alipay';
+  if (/^\s*\d{8}[A-Za-z]{2}\d{8,}\s*$/.test(t)) return 'alipay';
   if (/b23\.tv/i.test(t) || /bilibili\.com/i.test(t) || /BV[0-9A-Za-z]{10}/.test(t) || /(^|[^0-9A-Za-z])av(\d{3,})/i.test(t)) return 'bilibili';
   if (/v\.douyin\.com/i.test(t) || /douyin\.com/i.test(t) || /iesdouyin/i.test(t) || /\d{16,}/.test(t)) return 'douyin';
   return null;
@@ -14,6 +24,11 @@ function detectPlatform(text) {
 
 function dlStatus(text) {
   $('dlStatus').textContent = text;
+  /* 解析阶段 #dlStatus 还藏在 hidden 的 #videoPanel 里,写在它上面等于没提示
+     (短链要跟 302、抖音要开窗口,都可能等好几秒)。
+     面板没露出来时,同步写到面板外的 #parseStatus。 */
+  const ps = $('parseStatus');
+  if (ps) ps.textContent = $('videoPanel').classList.contains('hidden') ? text : '';
 }
 
 function setDlBar(pct) {
@@ -22,12 +37,8 @@ function setDlBar(pct) {
 }
 
 function updatePlatformBadge() {
-  const p = detectPlatform($('shareInput').value);
-  const b = $('platformBadge');
-  if (!p) { b.classList.add('hidden'); return; }
-  b.classList.remove('hidden');
-  b.className = 'plat-badge ' + (p === 'bilibili' ? 'badge-bili' : 'badge-dy');
-  b.textContent = p === 'bilibili' ? '识别到:哔哩哔哩' : '识别到:抖音';
+  // 看不出平台(多半是第三方短链)—— 等点了「解析」再跟 302 去嗅探
+  updatePlatformBadgeFor(detectPlatform($('shareInput').value));
 }
 
 function codecName(c) {
@@ -52,21 +63,41 @@ function setAccount(info) {
 /* ---------- 解析 ---------- */
 async function parseShare() {
   if (dlRunning) return;
-  const text = $('shareInput').value;
+  let text = $('shareInput').value;
   if (!text.trim()) { dlStatus('请先粘贴分享链接'); return; }
-  const p = detectPlatform(text);
-  if (!p) { dlStatus('未识别到 B 站或抖音链接,请检查内容'); return; }
-  dlPlatform = p;
+  let p = detectPlatform(text);
   $('videoPanel').classList.add('hidden');
   $('biliOptions').classList.add('hidden');
-  biliVideo = null; biliPlay = null; dyVideo = null;
+  biliVideo = null; biliPlay = null; dyVideo = null; apVideo = null; tgVideo = null;
   $('downloadBtn').disabled = true;
   try {
+    if (!p) {
+      /* 域名看不出来(ur.lepudding.com 这类第三方短链):
+         先跟 302 看落到哪个平台,再分发。 */
+      dlStatus('识别短链…');
+      const s = await window.bili.sniffShare(text);
+      if (!s || !s.ok) { dlStatus('未识别:' + ((s && s.message) || '短链没指向支持的平台')); return; }
+      p = s.platform;
+      if (p === 'alipay' && s.contentId) text = s.contentId;
+      if (p === 'telegram' && s.text) text = s.text;
+      updatePlatformBadgeFor(p);
+    }
+    dlPlatform = p;
     if (p === 'bilibili') await parseBili(text);
+    else if (p === 'alipay') await parseAlipay(text);
+    else if (p === 'telegram') await parseTelegram(text);
     else await parseDouyin(text);
   } catch (e) {
     dlStatus('出错:' + ((e && e.message) || e));
   }
+}
+
+function updatePlatformBadgeFor(p) {
+  const b = $('platformBadge');
+  if (!p) { b.classList.add('hidden'); return; }
+  b.classList.remove('hidden');
+  b.className = 'plat-badge ' + (p === 'bilibili' ? 'badge-bili' : p === 'alipay' ? 'badge-ap' : p === 'telegram' ? 'badge-tg' : 'badge-dy');
+  b.textContent = p === 'bilibili' ? '识别到:哔哩哔哩' : p === 'alipay' ? '识别到:支付宝' : p === 'telegram' ? '识别到:Telegram' : '识别到:抖音';
 }
 
 async function parseBili(text) {
@@ -86,6 +117,8 @@ async function parseBili(text) {
   }
   $('biliOptions').classList.remove('hidden');
   $('videoPanel').classList.remove('hidden');
+  renderImgStrip([]);
+  $('downloadBtn').textContent = '选择保存位置并下载';
   await loadBiliPlayurl();
 }
 
@@ -125,26 +158,303 @@ async function parseDouyin(text) {
   dlStatus('解析链接…');
   const rr = await window.bili.resolveDyVideo(text);
   if (!rr || !rr.ok) { dlStatus('解析失败:' + ((rr && rr.message) || '无响应')); return; }
-  dlStatus('已识别视频 ' + rr.id + ',正在打开视频页捕获直链…(最长 180 秒;如弹登录请扫码,如未自动播放请点击播放)');
-  const cap = await window.bili.fetchDyVideo(rr.id);
-  if (!cap || !cap.ok) { dlStatus('获取直链失败:' + ((cap && cap.message) || '超时')); return; }
-  dyVideo = { videoUrls: cap.videoUrls, audioUrls: cap.audioUrls, title: cap.title };
-  $('vTitle').textContent = cap.title;
-  $('vMeta').textContent = '抖音 · ID ' + rr.id;
+  dlStatus('正在解析作品…（图文一般 5~10 秒）');
+  const cap = await window.bili.fetchDyVideo(rr.id, rr.kind || '');
+  if (!cap || !cap.ok) { dlStatus('获取内容失败:' + ((cap && cap.message) || '超时')); return; }
   $('videoPanel').classList.remove('hidden');
+  $('biliOptions').classList.add('hidden');
+  if (cap.kind === 'images') {
+    dyVideo = { kind: 'images', images: cap.images, title: cap.title };
+    $('vTitle').textContent = cap.title;
+    $('vMeta').textContent = '抖音图集 · ' + cap.images.length + ' 张';
+    renderImgStrip(cap.images);
+    $('downloadBtn').textContent = '选择文件夹并保存图集';
+  } else {
+    dyVideo = { kind: 'video', videoUrls: cap.videoUrls, audioUrls: cap.audioUrls, title: cap.title };
+    $('vTitle').textContent = cap.title;
+    $('vMeta').textContent = '抖音 · ID ' + rr.id;
+    renderImgStrip([]);
+    $('downloadBtn').textContent = '选择保存位置并下载';
+  }
   dlStatus('');
   $('downloadBtn').disabled = false;
+}
+
+/* 支付宝(生活号 / 视频号):一条 JSON 接口就出结果,不用开窗口,通常 1~2 秒 */
+async function parseAlipay(text) {
+  dlStatus('解析中…');
+  const r = await window.bili.fetchAlipay(text);
+  if (!r || !r.ok) { dlStatus('解析失败:' + ((r && r.message) || '无响应')); return; }
+  const qs = r.qualities || [];
+  apVideo = { title: r.title, qualities: qs, videoUrls: r.videoUrls || [] };
+
+  $('videoPanel').classList.remove('hidden');
+  $('vTitle').textContent = r.title || '支付宝视频';
+  const meta = ['支付宝'];
+  if (r.author) meta.push(r.author);
+  if (r.duration) meta.push(fmtDur(r.duration));
+  if (r.width && r.height) meta.push(r.width + '×' + r.height);
+  $('vMeta').textContent = meta.join(' · ');
+  renderImgStrip([]);
+
+  // 清晰度下拉复用 B 站那一格;分 P 那格对支付宝无意义,藏掉
+  $('pageWrap').classList.add('hidden');
+  if (qs.length) {
+    $('biliOptions').classList.remove('hidden');
+    $('qualitySel').innerHTML = qs
+      .map((q, i) => '<option value="' + i + '">' + esc(q.label) + (q.sizeText ? ' · 约 ' + esc(q.sizeText) : '') + '</option>')
+      .join('');
+  } else {
+    $('biliOptions').classList.add('hidden');
+    $('qualitySel').innerHTML = '';
+  }
+  $('downloadBtn').textContent = '选择保存位置并下载';
+  dlStatus('');
+  $('downloadBtn').disabled = false;
+}
+
+/* Telegram 公开频道帖:一条 widget 页就出结果。
+   注意它和别的平台最大的不同 —— 能不能解析取决于频道有没有开网页预览,
+   关了的频道匿名一律拿不到(渲染层只能如实转述). */
+async function parseTelegram(text) {
+  dlStatus('解析中…(需要代理能连上 Telegram)');
+  const r = await window.bili.fetchTelegram(text);
+  if (!r || !r.ok) {
+    /* 公开解析失败 → 自动回退 MTProto（用本机已登录的 Telegram Desktop 授权） */
+    dlStatus('公开网页拿不到（' + ((r && r.message) || '无响应') + '），改用本机登录态走 MTProto…');
+    return parseTelegramMt(text);
+  }
+  tgVideo = r;
+  $('videoPanel').classList.remove('hidden');
+  $('vTitle').textContent = r.title || 'Telegram';
+  const meta = ['Telegram'];
+  if (r.author) meta.push(r.author);
+  if (r.duration) meta.push(fmtDur(r.duration));
+  if (r.width && r.height) meta.push(r.width + '×' + r.height);
+  $('vMeta').textContent = meta.join(' · ');
+  // 视频帖显示封面,图片帖显示那张图(顺便当"点对了"的确认)
+  renderImgStrip(r.kind === 'photo' ? (r.images || []).map((i) => i.urls) : r.cover ? [[r.cover]] : []);
+
+  // 分 P 那格对 Telegram 没意义,藏掉;清晰度只有「原始文件」一档
+  $('pageWrap').classList.add('hidden');
+  const qs = r.qualities || [];
+  if (r.kind === 'video' && qs.length) {
+    $('biliOptions').classList.remove('hidden');
+    $('qualitySel').innerHTML = qs
+      .map((q, i) => '<option value="' + i + '">' + esc(q.label) + (q.sizeText ? ' · 约 ' + esc(q.sizeText) : '') + '</option>')
+      .join('');
+  } else {
+    $('biliOptions').classList.add('hidden');
+    $('qualitySel').innerHTML = '';
+  }
+  $('downloadBtn').textContent = r.kind === 'photo' ? '保存图片' : '选择保存位置并下载';
+  dlStatus('');
+  $('downloadBtn').disabled = false;
+}
+
+/* 图集预览:最多 4 张缩略图 + 剩余张数,只为确认「点对了作品」 */
+function renderImgStrip(images) {
+  const box = $('imgStrip');
+  const list = Array.isArray(images) ? images : [];
+  if (!list.length) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  const picks = list.slice(0, 4);
+  // CSP 只放行 https 图片;顺带 no-referrer,避免图床按防盗链拒绝
+  const pickSrc = (urls) => (urls || []).find((u) => /^https:/i.test(u)) || (urls || [])[0] || '';
+  box.innerHTML = picks
+    .map((urls) => '<img class="img-thumb" loading="lazy" referrerpolicy="no-referrer" src="' + esc(pickSrc(urls)) + '" alt="">')
+    .join('') +
+    (list.length > picks.length ? '<span class="img-more">+' + (list.length - picks.length) + '</span>' : '');
+  box.classList.remove('hidden');
 }
 
 /* ---------- 下载 ---------- */
 async function startDownload() {
   if (dlRunning) return;
   if (dlPlatform === 'bilibili') return startBiliDownload();
-  if (dlPlatform === 'douyin') return startDouyinDownload();
+  if (dlPlatform === 'alipay') return startAlipayDownload();
+  if (dlPlatform === 'telegram') return startTelegramDownload();
+  if (dlPlatform === 'douyin') {
+    if (dyVideo && dyVideo.kind === 'images') return startDyImageDownload();
+    return startDouyinDownload();
+  }
 }
 
-async function startBiliDownload() {
-  const vids = biliPlay.videos;
+/* 支付宝:单文件 mp4(视频+音轨在一起),不需要 ffmpeg 合并 */
+async function startAlipayDownload() {
+  const v = apVideo;
+  if (!v) return;
+  const qs = v.qualities || [];
+  const pick = qs[Number($('qualitySel').value) || 0];
+  // 选中的排第一,其余按原顺序兜底
+  const urls = pick ? [pick.url].concat((v.videoUrls || []).filter((u) => u !== pick.url)) : v.videoUrls || [];
+  if (!urls.length) { dlStatus('没有可用的视频地址'); return; }
+  let savePath = await window.bili.pickSave(sanitizeName(v.title) + '.mp4');
+  if (!savePath) return;
+  if (!/\.mp4$/i.test(savePath)) savePath += '.mp4';
+  dlRunning = true;
+  $('downloadBtn').disabled = true;
+  $('parseBtn').disabled = true;
+  setDlBar(0);
+  dlStatus('下载中…(' + (pick ? pick.label : '默认清晰度') + ')');
+  try {
+    const r = await window.bili.downloadAlipay({ videoUrls: urls, dest: savePath, title: v.title });
+    if (!r.ok) throw new Error(r.message);
+    setDlBar(100);
+    dlStatus('✅ 已保存:' + (r.dest || savePath));
+  } catch (e) {
+    dlStatus('❌ 下载失败:' + ((e && e.message) || e));
+  } finally {
+    dlRunning = false;
+    $('downloadBtn').disabled = false;
+    $('parseBtn').disabled = false;
+  }
+}
+
+/* Telegram MTProto:用本机 tdata 的登录态直连服务器解析(私密频道/预览关闭都能拿) */
+async function parseTelegramMt(text) {
+  dlStatus('MTProto 解析中…(用本机 Telegram Desktop 登录态)');
+  try {
+    const r = await window.bili.fetchTelegramMt({ link: text });
+    if (!r || !r.ok) {
+      dlStatus('MTProto 解析失败:' + ((r && r.message) || '无响应') +
+        '<br><span class="muted">确认本机 Telegram Desktop 已登录，且该账号能看到这条帖子。</span>');
+      return { ok: false };
+    }
+    const items = r.items || [];
+    if (!items.length) {
+      dlStatus('帖子解析到了（' + esc((r.channel && r.channel.title) || r.channel.username) + '），但里面没有可下载的媒体。');
+      return { ok: false };
+    }
+    const label = (r.channel && r.channel.title) || (r.channel && r.channel.username) || 'Telegram';
+    tgVideo = { mt: true, title: label, items: items };
+    $('videoPanel').classList.remove('hidden');
+    $('vTitle').textContent = items.length > 1 ? label + '（' + items.length + ' 个媒体）' : label;
+    const first = items[0];
+    const meta = ['Telegram · MTProto'];
+    if (first.kind === 'document' && first.isVideo) meta.push('视频');
+    else if (first.kind === 'photo') meta.push('图片');
+    else if (first.isVoice) meta.push('语音');
+    else if (first.isSticker) meta.push('贴纸');
+    if (first.size) meta.push(fmtSize(first.size));
+    $('vMeta').textContent = meta.join(' · ');
+    renderImgStrip([]);
+    $('pageWrap').classList.add('hidden');
+    /* 每个媒体一档"清晰度" */
+    $('biliOptions').classList.remove('hidden');
+    $('qualitySel').innerHTML = items
+      .map((it, i) => {
+        const name = it.filename || it.text || (it.kind === 'photo' ? 'photo' : 'media');
+        const tag = it.kind === 'photo' ? '图片'
+          : it.isVideo ? '视频' : it.isVoice ? '语音' : it.isSticker ? '贴纸' : '文件';
+        return '<option value="' + i + '">' + esc(tag + ' · ' + name) + (it.size ? ' · ' + esc(fmtSize(it.size)) : '') + '</option>';
+      })
+      .join('');
+    $('downloadBtn').textContent = '选择保存位置并下载';
+    dlStatus('');
+    $('downloadBtn').disabled = false;
+    return { ok: true };
+  } catch (e) {
+    dlStatus('MTProto 解析异常:' + esc((e && e.message) || e));
+    return { ok: false };
+  }
+}
+
+/* Telegram:单文件 mp4(带音轨),不需要 ffmpeg 合并;图片帖则存单张 jpg。
+   下载在主进程里自己走代理隧道(主进程的 fetch 不读系统代理)。 */
+async function startTelegramDownload() {
+  const v = tgVideo;
+  if (!v) return;
+  if (v.mt) return startTelegramMtDownload();
+  if (v.kind === 'photo') return startTgPhotoSave();
+
+  const qs = v.qualities || [];
+  const pick = qs[Number($('qualitySel').value) || 0];
+  const urls = pick ? [pick.url].concat((v.videoUrls || []).filter((u) => u !== pick.url)) : v.videoUrls || [];
+  if (!urls.length) { dlStatus('没有可用的视频地址'); return; }
+  let savePath = await window.bili.pickSave(sanitizeName(v.title) + '.mp4');
+  if (!savePath) return;
+  if (!/\.mp4$/i.test(savePath)) savePath += '.mp4';
+  dlRunning = true;
+  $('downloadBtn').disabled = true;
+  $('parseBtn').disabled = true;
+  setDlBar(0);
+  dlStatus('下载中…(走代理,可能需要一会儿)');
+  try {
+    const r = await window.bili.downloadTelegram({ videoUrls: urls, dest: savePath, title: v.title });
+    if (!r.ok) throw new Error(r.message);
+    setDlBar(100);
+    dlStatus('✅ 已保存:' + (r.dest || savePath));
+  } catch (e) {
+    dlStatus('❌ 下载失败:' + ((e && e.message) || e));
+  } finally {
+    dlRunning = false;
+    $('downloadBtn').disabled = false;
+    $('parseBtn').disabled = false;
+  }
+}
+
+/* MTProto 下载:媒体元数据交主进程,由 MTProto 分块拉回后落盘 */
+async function startTelegramMtDownload() {
+  const v = tgVideo;
+  const pick = (v.items || [])[Number($('qualitySel').value) || 0];
+  if (!pick) { dlStatus('没有可下载的媒体'); return; }
+  const rawName = pick.filename || pick.text || ((v.title || 'Telegram') + '_' + pick.msgId);
+  const dot = (/\.(\w{2,5})$/.exec(rawName) || [])[1];
+  const ext = pick.kind === 'photo' ? 'jpg'
+    : (dot ? dot.toLowerCase()
+      : (/mp4/.test(pick.mime || '') ? 'mp4' : /webm/.test(pick.mime || '') ? 'webm' : 'bin'));
+  const baseName = (dot ? rawName.replace(/\.\w{2,5}$/, '') : rawName) || ('telegram_' + pick.msgId);
+  let savePath = await window.bili.pickSave(sanitizeName(baseName) + '.' + ext);
+  if (!savePath) return;
+  dlRunning = true;
+  $('downloadBtn').disabled = true;
+  $('parseBtn').disabled = true;
+  setDlBar(0);
+  dlStatus('MTProto 下载中…(走本机登录态,跨 DC 会自动迁移授权)');
+  try {
+    const r = await window.bili.downloadTelegramMt({ media: pick, dest: savePath, title: v.title });
+    if (!r.ok) throw new Error(r.message);
+    setDlBar(100);
+    dlStatus('✅ 已保存:' + (r.dest || savePath));
+  } catch (e) {
+    dlStatus('❌ 下载失败:' + ((e && e.message) || e));
+  } finally {
+    dlRunning = false;
+    $('downloadBtn').disabled = false;
+    $('parseBtn').disabled = false;
+  }
+}
+
+async function startTgPhotoSave() {
+  const v = tgVideo;
+  const first = ((v.images || [])[0] || {});
+  const url = (first.urls || [])[0] || '';
+  if (!url) { dlStatus('没有可用的图片地址'); return; }
+  let savePath = await window.bili.pickSave(sanitizeName(v.title) + '.jpg');
+  if (!savePath) return;
+  if (!/\.(jpg|jpeg|png|webp)$/i.test(savePath)) savePath += '.jpg';
+  dlRunning = true;
+  $('downloadBtn').disabled = true;
+  $('parseBtn').disabled = true;
+  dlStatus('保存图片中…');
+  try {
+    const r = await window.bili.saveTelegramPhoto({ url: url, dest: savePath, title: v.title });
+    if (!r.ok) throw new Error(r.message);
+    dlStatus('✅ 已保存:' + (r.dest || savePath));
+  } catch (e) {
+    dlStatus('❌ 保存失败:' + ((e && e.message) || e));
+  } finally {
+    dlRunning = false;
+    $('downloadBtn').disabled = false;
+    $('parseBtn').disabled = false;
+  }
+}
+
+async function startBiliDownload() {  const vids = biliPlay.videos;
   const v = vids[Number($('qualitySel').value) || 0] || vids[0];
   const audios = biliPlay.audios || [];
   if (!v || !v.urls || !v.urls.length) { dlStatus('该清晰度没有可用的下载地址'); return; }
@@ -206,6 +516,31 @@ async function startDouyinDownload() {
   }
 }
 
+/* 图集:选父目录 → 主进程在其中建同名子目录,逐张存 01.jpg / 02.jpg… */
+async function startDyImageDownload() {
+  const v = dyVideo;
+  if (!v || !v.images || !v.images.length) { dlStatus('没有可下载的图片'); return; }
+  const dir = await window.bili.pickDir('选择保存图集的文件夹（会在其中新建子文件夹）');
+  if (!dir) return;
+  dlRunning = true;
+  $('downloadBtn').disabled = true;
+  $('parseBtn').disabled = true;
+  setDlBar(0);
+  dlStatus('下载图集…');
+  try {
+    const r = await window.bili.downloadDyImages({ images: v.images, destDir: dir, title: v.title });
+    if (!r.ok) throw new Error(r.message || '下载失败');
+    setDlBar(100);
+    dlStatus('✅ 已保存 ' + r.saved + ' 张到:' + r.dir + (r.failed ? '（' + r.failed + ' 张失败）' : ''));
+  } catch (e) {
+    dlStatus('❌ 下载失败:' + ((e && e.message) || e));
+  } finally {
+    dlRunning = false;
+    $('downloadBtn').disabled = false;
+    $('parseBtn').disabled = false;
+  }
+}
+
 /* ---------- 绑定 ---------- */
 $('openUnfollowBtn').addEventListener('click', () => window.bili.openUnfollow());
 $('loginChipBtn').addEventListener('click', () => window.bili.startLogin());
@@ -215,7 +550,7 @@ $('pageSel').addEventListener('change', loadBiliPlayurl);
 $('downloadBtn').addEventListener('click', startDownload);
 window.bili.onDlProgress(({ key, received, total }) => {
   const pct = total ? Math.min(100, Math.round((received / total) * 100)) : 0;
-  if (['cur:v', 'cur:a', 'dyv', 'dya', 'wxv'].includes(key)) setDlBar(pct);
+  if (['cur:v', 'cur:a', 'dyv', 'dya', 'dyimg', 'wxv', 'apv', 'tgv'].includes(key)) setDlBar(pct);
 });
 window.bili.onLoginSuccess((info) => setAccount(info));
 
@@ -334,21 +669,20 @@ function renderWxFeeds() {
     head = '<div class="muted">' +
       (wxStreams.length
         ? (keyCount
-            ? '已拿到 ' + keyCount + ' 个视频的 decodeKey（解密 worker ' + workerKeys + ' + 本地缓存 ' + dbKeys + '），下方视频流可直接「补全导出」并自动解密（前 128KB 可还原）。'
-            : '下面的视频流已抓到，可先合并 / 补全导出原始流；但本轮没拿到 decodeKey（导出文件前 128KB 仍是加密的，不能直接播放）。')
+            ? '已拿到 ' + keyCount + ' 个 decodeKey，下方视频流可直接导出并解密。'
+            : '视频流已抓到，但没拿到 decodeKey（前 128KB 仍加密）。')
         : '尚未捕获到视频。') +
-      ' 拿 key 的正确顺序：<b>彻底退出微信（托盘 + 任务管理器结束 WeChat.exe / WeChatAppEx.exe）→ 点「清 WebView 缓存(可恢复)」→ 启动捕获 → 再打开微信进视频号 → 播放/切换视频</b>。日志出现「[WorkerKey]」或「[CacheDbKey]」即已拿到 decodeKey。每个视频的 key 都是独立的，不会拿别的视频的 key 复用。' +
-      '<br><b>标题说明</b>：视频号的 feed 数据走 mmtls 私有协议 + LiteApp 本地包，不经过 HTTPS 代理、也不落盘，所以无法自动取到中文标题；点每条右侧的「改名」可以自己命名，名字按视频标识保存，重启后仍在。' +
+      ' 顺序：<b>退出微信 → 清缓存 → 启动捕获 → 播放视频</b>；日志出现 [WorkerKey] 即拿到 key。标题可用「改名」手动设置。' +
       '</div>';
   }
   const stats = '<div class="muted">已捕获 ' + wxCaptureCount + ' 个分片 · 重建出 ' + wxStreams.length + ' 个视频流</div>';
   let diagHint = '';
   if (!wxPageSeen) {
-    diagHint = '（<b>页面/JS 请求 0 次 = 微信 WebView 命中磁盘缓存，页面根本没联网</b>；这不是漏拦域名，请先点「缓存诊断」→「清 WebView 缓存(可恢复)」，再彻底重开微信。日志中的 [直通] 只有报错上报和更新下载域名，与 feed 无关）';
+    diagHint = '（页面 0 请求 = 命中磁盘缓存，先清缓存再彻底重开微信）';
   } else if (!wxWorkerInject) {
-    diagHint = '（<b>页面资源已联网，但解密 worker 脚本没有经过代理改写</b>：worker_release.js 还吃着旧缓存，hook 没机会执行。请再点一次「清 WebView 缓存(可恢复)」，彻底退出微信后重开，直到日志出现 [Worker注入]）';
+    diagHint = '（worker 走了旧缓存，再清一次缓存并重开微信）';
   } else if (!keyCount) {
-    diagHint = '（解密 worker 已注入，但还没上报 seed；播放/切换一个视频触发 CUT 消息，或点「从本地缓存补 key」）';
+    diagHint = '（worker 已注入，播放一个视频即可拿到 key）';
   }
   const diag = '<div class="muted">本轮页面/JS 请求 ' + wxPageSeen + ' 次 · 页面注入 ' + wxInjectCount +
     ' 次 · worker 注入 ' + wxWorkerInject + ' 次 · 收到 Feed ' + wxFeedCount +
@@ -375,9 +709,14 @@ function renderWxFeeds() {
     const busy = !!wxStreamBusy[s.id];
     const st = wxStreamMsg[s.id] || '';
     // 旧记录没有 Content-Range,总长是推断出来的,不能宣称「完整」
+    // covered 是「从 0 起连续」,captured 是「实际抓到」。跳播时前者可能是 0 而后者很大,
+    // 只显示 covered 会让用户以为什么都没抓到,所以两种口径分开说。
+    const got = Number(s.captured !== undefined ? s.captured : s.covered) || 0;
     const state = s.complete
       ? (s.sizeKnown ? '完整' : '已抓到末尾(长度未核实)')
-      : ('缺 ' + fmtSize(s.missing));
+      : (s.covered > 0
+        ? ('缺 ' + fmtSize(s.missing))
+        : ('未接通头部 · 已抓 ' + fmtSize(got)));
     const tag = (s.key ? '可解密' : '缺 decodeKey') + ' · ' + state + (s.canComplete ? ' · 可补全' : '');
     const thumb = wxThumbs[s.id];
     const thumbHtml = thumb
@@ -390,7 +729,8 @@ function renderWxFeeds() {
         thumbHtml +
         '<span class="cap-url" style="max-width:300px;font-weight:600;color:#33415e" title="' + esc(s.url || '') + '">' + esc(s.title || '(无标题)') + '</span>' +
         '<span class="cap-time">' + esc((dur ? dur + ' · ' : '') + s.parts + ' 片 · ' + tag) + '</span>' +
-        '<span class="cap-size">' + fmtSize(s.covered) + ' / ' + fmtSize(s.size) + '</span>' +
+        '<span class="cap-size" title="已抓 / 总长' + (s.scattered > 0 ? '（其中从 0 起连续 ' + fmtSize(s.covered) + '）' : '') + '">' +
+          fmtSize(got) + ' / ' + fmtSize(s.size) + '</span>' +
       '</div>' +
       '<div class="cap-ops">' +
         (st ? '<span class="cap-time">' + esc(st) + '</span>' : '') +
@@ -491,7 +831,7 @@ async function wxStreamDownload(id) {
       wxStatusText((r.fetchedFull
         ? '✅ 已重新下载完整视频 ' + fmtSize(r.bytes) + ':'
         : '已合并保存(仅已捕获部分):') + savePath +
-        '。这仍是加密流，前 128KB 需 decodeKey 才能播放。');
+        '（前 128KB 仍加密）。');
     } else if (r && r.ok) {
       wxStreamMsg[id] = r.isMp4 ? '✅ 已解密' : '⚠ 头非 MP4';
       wxStatusText((r.isMp4 ? '✅ 已保存(已解密):' : '⚠ 已保存但文件头不是 MP4:') + savePath);
@@ -513,7 +853,7 @@ async function wxStreamDelete(id) {
   const s = wxStreams.find((x) => x.id === id);
   if (!s) { wxStatusText('视频流已变化,请刷新后重试'); return; }
   if (!window.confirm('删除这条捕获记录？\n\n' + (s.title || '(无标题)') + '\n' +
-    s.parts + ' 个分片 · ' + fmtSize(s.covered) + '\n\n' +
+    s.parts + ' 个分片 · ' + fmtSize(s.captured !== undefined ? s.captured : s.covered) + '\n\n' +
     '分片文件会被删除；decodeKey 与自定义标题会保留。')) return;
   try {
     const r = await window.bili.deleteWxvStream(id);
@@ -533,7 +873,7 @@ async function wxStreamDelete(id) {
 /* 一键清除全部捕获记录 */
 async function wxClearAllCaptures() {
   if (!wxStreams.length && !wxCaptureCount) { wxStatusText('当前没有捕获记录。'); return; }
-  const total = wxStreams.reduce((a, s) => a + (Number(s.covered) || 0), 0);
+  const total = wxStreams.reduce((a, s) => a + (Number(s.captured !== undefined ? s.captured : s.covered) || 0), 0);
   if (!window.confirm('清除全部捕获记录？\n\n共 ' + wxStreams.length + ' 条视频流 / ' + wxCaptureCount +
     ' 个分片（约 ' + fmtSize(total) + '）\n\n' +
     '会删除所有分片文件和已生成的封面；decodeKey 与自定义标题会保留。\n\n此操作不可撤销。')) return;
@@ -577,7 +917,7 @@ async function wxStreamThumb(id, silent) {
   const s = wxStreams.find((x) => x.id === id);
   if (!s) { if (!silent) wxStatusText('视频流已变化,请刷新后重试'); return; }
   if (!s.key) {
-    if (!silent) wxStatusText('缺 decodeKey,无法解密取帧。先播放该视频,或点「从本地缓存补 key」。');
+    if (!silent) wxStatusText('缺 decodeKey，先播放该视频。');
     return;
   }
   if (wxThumbPending[id]) return;
@@ -650,7 +990,7 @@ $('wxStartBtn').addEventListener('click', async () => {
 $('wxStopBtn').addEventListener('click', async () => {
   try {
     const r = await window.bili.wxvStop();
-    wxStatusText(r && r.ok ? '已停止捕获,系统代理已还原。微信需重新打开才能恢复正常直连。' : '停止失败:' + ((r && r.message) || ''));
+    wxStatusText(r && r.ok ? '已停止捕获，系统代理已还原；微信需重新打开才恢复直连。' : '停止失败:' + ((r && r.message) || ''));
   } catch (e) {
     wxStatusText('停止失败:' + ((e && e.message) || e));
   }
@@ -662,6 +1002,18 @@ $('wxCertBtn').addEventListener('click', async () => {
   wxStatusText(r && r.ok ? '✅ 证书已就绪(当前用户 · 受信任的根证书颁发机构)' : '❌ 安装失败:' + ((r && r.message) || '请先启动捕获'));
 });
 
+/* 卸载证书:装进根证书库等于把「给任意 HTTPS 站点签发有效证书」的能力交给本机,
+   不用了就该能撤掉;早期 build 留下的同名旧证书也在这里一起清。 */
+$('wxCertOffBtn').addEventListener('click', async () => {
+  if (!confirm('从「当前用户 · 受信任的根证书颁发机构」移除本应用的本地根证书?\n\n移除后再次使用视频号捕获需要重新点「安装证书」;已有的捕获文件不受影响。')) return;
+  const r = await window.bili.wxvUninstallCert();
+  if (r && r.ok) {
+    wxStatusText('✅ ' + ((r.removed && r.removed.length) ? ('已移除根证书:' + r.removed.join('、')) : (r.message || '没有找到本应用的证书')));
+  } else {
+    wxStatusText('❌ 卸载失败:' + ((r && r.message) || '未知错误'));
+  }
+});
+
 /* ---- 微信 WebView 缓存:只读诊断 / 可恢复清理 / 还原 ---- */
 $('wxCacheInfoBtn').addEventListener('click', async () => {
   try {
@@ -671,7 +1023,8 @@ $('wxCacheInfoBtn').addEventListener('click', async () => {
       ' ｜ 可清理子目录 ' + i.targets.length + ' 个：' + (i.targets.slice(0, 6).join('、') || '无') + (i.targets.length > 6 ? ' …' : '') +
       ' ｜ 微信进程：' + (i.running.length ? '仍在运行(' + i.running.join('、') + ')，请先彻底退出' : '已全部退出 ✔') +
       ' ｜ 备份：' + (i.backups.length ? i.backups[0] : '无') +
-      ' ｜ 本轮页面/JS 请求 ' + i.pageSeen + ' 次' + (i.pageSeen ? '' : '(0 次 = 页面命中磁盘缓存，需要清理)'));
+      ' ｜ 本轮页面/JS 请求 ' + i.pageSeen + ' 次' + (i.pageSeen ? '' : '(0 次 = 页面命中磁盘缓存，需要清理)') +
+      ' ｜ 日志：' + (i.logPath || '(未落盘)'));
   } catch (e) {
     wxStatusText('❌ 缓存诊断失败:' + ((e && e.message) || e));
   }
@@ -686,7 +1039,7 @@ $('wxCacheClearBtn').addEventListener('click', async () => {
     wxStatusText('❌ 微信仍在运行(' + info.running.join('、') + ')。请先彻底退出微信：右键托盘退出，必要时在任务管理器结束 WeChatAppEx.exe，然后再点清理。');
     return;
   }
-  if (!info.targets.length) { wxStatusText('没有需要清理的缓存目录（可能已清理过，可点「恢复缓存」还原）。'); return; }
+  if (!info.targets.length) { wxStatusText('没有要清理的缓存（可点「恢复缓存」还原）。'); return; }
   const ok = window.confirm(
     '⚠️ 即将改动微信 WebView 缓存目录（可恢复，不会删除任何文件）\n\n' +
     '会把下列 ' + info.targets.length + ' 个目录重命名进一个带时间戳的备份目录，使视频号页面的 HTML / JS 必须重新联网，代理才能注入并拿到 decodeKey：\n\n' +
@@ -828,7 +1181,7 @@ async function emojiCheck() {
       emojiLog('未找到 wxemoticon,开始自动下载安装…');
       const r = await window.bili.emojiInstall('auto');
       if (!r || !r.ok) {
-        emojiStatusText('自动安装失败:' + esc((r && r.message) || '') + '<br>可手动下载 zip 后点「从本地 zip 安装」。');
+        emojiStatusText('自动安装失败:' + esc((r && r.message) || '') + '（可手动下载 zip 后点「从本地 zip 安装」）');
         emojiLog('自动安装失败:' + ((r && r.message) || ''));
         return;
       }
