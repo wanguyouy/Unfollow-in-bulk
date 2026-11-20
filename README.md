@@ -1,6 +1,6 @@
 # B 站助手(Bilibili Unfollow Helper)
 
-Electron 桌面小工具:批量清理 Bilibili 关注列表 + 五平台视频下载(B 站 / 抖音 / 支付宝 / Telegram / 微信视频号)
+Electron 桌面小工具:批量清理 Bilibili 关注列表 + 六平台内容下载(B 站 / 抖音 / 公众号 / 支付宝 / Telegram / 微信视频号)
 \+ Telegram 本地缓存离线恢复(私密频道也能取)+ Telegram 私密频道 MTProto 解析(复用本机已登录会话)。
 
 > 仅操作你自己账号的数据,仅供学习交流,请勿用于任何违规用途。
@@ -35,7 +35,21 @@ Electron 桌面小工具:批量清理 Bilibili 关注列表 + 五平台视频下
   默认选 **1080P · H.264**(Windows 默认不带 HEVC 解码器,H.265 可能下得下来放不出来)
 - 直链不校验 UA / Referer / Cookie,公开内容无需登录;单文件 mp4,不需要 ffmpeg 合并
 
-### ⑤ Telegram 视频下载(公开频道帖)
+### ⑤ 公众号图文 / 图片消息下载(无水印图集)
+- 粘贴 `https://mp.weixin.qq.com/s/...` 文章链接(或分享文案)
+- 纯 HTTPS 解析,不开窗口:图片消息(小绿书)的图片列表就在页面内联数据
+  `picture_page_info_list` 里,每张带 `cdn_url`(压缩图)、`watermark_info`(水印图层)
+  与 `original_info`(无水印原图,单张常 40MB+)
+- **水印是客户端叠上去的图层,不在图片里**(已逐张核验):默认取 `original_info.cdn_url`
+  原图,也可在界面切「压缩图」省空间;普通图文则取正文 `js_content` 里的 `data-src` 图片
+- 不 eval 页面脚本:那个数组是 JS 字面量(裸键名 / 单引号 / `'2560' * 1`),
+  模块用括号扫描 + 字段正则解析,不执行远端代码
+- 图集存进以标题命名的子目录,`01.jpg` / `02.jpg`… 按成功顺序连续编号;
+  页面封面一起存为 `封面.jpg`,排在最前、不占编号(优先 `msg_cdn_url`,
+  没有就取 `og:image` / `twitter:image`;封面只有压缩版)
+- 验证页(环境异常)、已删除、被屏蔽、链接参数错误(文章 ID 抄错)都会明确报错
+
+### ⑥ Telegram 视频下载(公开频道帖)
 - 粘贴 `https://t.me/频道名/帖号`(也认 `t.me/s/...`、`telegram.me/...`、
   `tg://resolve?domain=…&post=…`,以及分享文案里夹带的链接)
 - 纯 HTTPS 解析,不要账号、不开窗口:单帖 widget 页
@@ -48,11 +62,11 @@ Electron 桌面小工具:批量清理 Bilibili 关注列表 + 五平台视频下
   (`reg query … ProxyServer`);直连也会试一次,海外机器或 TUN 模式的机器照样能用
 - **限制**:只对「开了网页预览」的公开频道有效。关掉预览的频道,三种匿名入口
   (`t.me/频道/帖号`、`?embed=1`、`t.me/s/频道`)都只回一张引导页,没有任何媒体节点 ——
-  此时软件会**自动回退到 MTProto 解析**(见 ⑥),前提是本机 Telegram Desktop 已登录;
+  此时软件会**自动回退到 MTProto 解析**(见 ⑦),前提是本机 Telegram Desktop 已登录;
   两条路都不通才报「解析失败」。文件附件(文档)同理,需要账号
 
-### ⑥ Telegram 私密频道解析(MTProto,复用本机已登录会话)
-- 公开解析(⑤)拿不到的媒体 —— **关闭网页预览的频道、私密频道、文件附件、完整原视频**
+### ⑦ Telegram 私密频道解析(MTProto,复用本机已登录会话)
+- 公开解析(⑥)拿不到的媒体 —— **关闭网页预览的频道、私密频道、文件附件、完整原视频**
   —— 走这条路:从本机 Telegram Desktop 的 `tdata/D877F783D5D3EF8C` 提取已登录的
   MTProto 授权密钥,直接以你的账号身份连 Telegram 服务器解析和下载
 - 纯 Node 实现的 MTProto 2.0 全链路,零外部依赖:
@@ -74,7 +88,7 @@ Electron 桌面小工具:批量清理 Bilibili 关注列表 + 五平台视频下
 - 实测:私密频道 2.3GB 单文件(关闭预览的频道)完整解析,分块下载经 ffmpeg 校验通过;
   流式落盘版另行用三个视频验证(落盘字节数 == 返回字节数,ffmpeg 全量解码零错误)
 
-### ⑦ Telegram 本地缓存恢复(离线,私密频道也能取)
+### ⑧ Telegram 本地缓存恢复(离线,私密频道也能取)
 - 不联网、不要账号:**直接解本机 Telegram Desktop 落盘的加密缓存**
   (`tdata/user_data/cache` + `media_cache`)。网页预览被关掉的频道/群,
   只要在本机客户端里看过,磁盘上就有 —— 这条路不受「有没有开预览」限制
@@ -90,7 +104,7 @@ Electron 桌面小工具:批量清理 Bilibili 关注列表 + 五平台视频下
 - 实测本机 1.0GB 缓存:926 个文件 → 452 条可恢复(401 图 / 51 视频,其中 45 个能播),
   全量扫描约 2.5 秒;二次扫描命中文件指纹缓存(sizes+mtime)降到 0.3 秒
 
-### ⑧ 微信视频号下载(实验性)
+### ⑨ 微信视频号下载(实验性)
 - 原理:本地 MITM 代理捕获视频号网页播放器的 feed 数据(含视频直链与 decodeKey),
   用微信官方解密模块(WASM,ISAAC64 密钥流)解密文件头 128KB,还原完整 MP4
 - 使用:视频号卡片 → 启动捕获(首次自动安装本地证书)→ 完全重启微信 →
@@ -98,7 +112,7 @@ Electron 桌面小工具:批量清理 Bilibili 关注列表 + 五平台视频下
 - 下载完成后自动校验文件头;停止捕获会自动还原系统代理
 - 兼容性说明:页面注入依赖微信前端结构,微信更新后可能失效
 
-### ⑨ 微信表情包导出
+### ⑩ 微信表情包导出
 - 把微信里收藏的全部自定义表情批量导出为图片文件(GIF/PNG/JPG)
 - 原理:微信 4.x 本地表情文件是加密的,本功能调用开源工具
   [wxemoticon](https://github.com/liusheng22/export-wechat-emoji) 从运行中的微信进程
@@ -135,6 +149,7 @@ B 站相关功能需先登录(右上角「登录 B 站」);抖音/支付宝/Tele
 ├─ douyin-images.js   # 抖音图集:从 aweme 详情取图、去水印优先、批量落盘
 ├─ douyin-fetch.js    # 抖音分享页解析(纯 HTTPS)
 ├─ alipay-fetch.js    # 支付宝生活号/视频号解析(短链 302 → contentId → 网关接口 → CDN 直链)
+├─ wechat-article.js  # 公众号图文/图片消息解析(内联图片数据 → 无水印原图,不 eval 远端 JS)
 ├─ telegram-fetch.js  # Telegram 公开频道帖解析(自带 CONNECT 代理客户端,主进程 fetch 不读系统代理)
 ├─ telegram-local.js  # Telegram Desktop 本地缓存解密/扫描/导出(key_datas + TDEF/AES-CTR)
 ├─ telegram-session.js   # 从 tdata 提取已登录的 MTProto 授权密钥
@@ -179,7 +194,7 @@ npm run dist   # NSIS 安装包
 打包要点:`@ffmpeg-installer/**` 必须 `asarUnpack`,否则 ffmpeg 在 asar 内会被
 `fs.existsSync` 判为存在、但 `spawn` 一定 ENOENT(报错形如
 `spawn ...\app.asar\node_modules\@ffmpeg-installer\win32-x64\ffmpeg.exe ENOENT`)。
-绿色的便携版会把 userData 重定向到 exe 同级的 `data/`。
+绿色的便携版会把 userData 重定向到 exe 同级的 `data/`;开发模式沿用系统默认(AppData)。
 
 新增的解析模块(`douyin-fetch.js` / `douyin-images.js` / `alipay-fetch.js` / `telegram-fetch.js` /
 `telegram-local.js` / `telegram-session.js` / `telegram-mtproto.js` / `telegram-authkey.js` /
@@ -197,6 +212,9 @@ B站一键取关助手.exe --dy-probe "https://v.douyin.com/xxxx/"
 
 # 支付宝:短链 → contentId → 接口 → 清晰度 → 真实下载
 B站一键取关助手.exe --ap-probe "https://ur.lepudding.com/xxxx"
+
+# 公众号:文章 → 图片消息内联数据 → 原图直链(HEAD 校验前两张,不整包下载)
+B站一键取关助手.exe --wxarticle-probe "https://mp.weixin.qq.com/s/xxxx"
 
 # Telegram:代理连通性 → widget 页 → 直链 → 真实下载
 B站一键取关助手.exe --tg-probe "https://t.me/channel/123"

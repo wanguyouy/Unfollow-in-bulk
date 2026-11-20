@@ -1,14 +1,17 @@
-/* 主界面:视频下载(B 站 / 抖音 / 支付宝 / Telegram 自动识别) */
+/* 主界面:视频下载(B 站 / 抖音 / 支付宝 / Telegram / 公众号 自动识别) */
 let dlRunning = false;
-let dlPlatform = null; // 'bilibili' | 'douyin' | 'alipay' | 'telegram'
+let dlPlatform = null; // 'bilibili' | 'douyin' | 'alipay' | 'telegram' | 'wechat'
 let biliVideo = null;
 let biliPlay = null;
 let dyVideo = null;
 let apVideo = null;
 let tgVideo = null;
+let wxArticle = null;
 
 function detectPlatform(text) {
   const t = String(text || '');
+  /* 公众号文章:图片消息的无水印原图藏在页面内联数据里,单独一条链路 */
+  if (/mp\.weixin\.qq\.com\/s[/?]/i.test(t) || /weixin\.qq\.com\/s\//i.test(t)) return 'wechat';
   /* Telegram 排最前:t.me 的帖号很短(几位到十来位),
      放着不管也会被下面的抖音 \d{16,} 之类误判的可能性不大,但先判更稳。 */
   if (/(?:^|[/.\s])(?:t|telegram)\.me\//i.test(t) || /tg:\/\/resolve/i.test(t)) return 'telegram';
@@ -68,7 +71,7 @@ async function parseShare() {
   let p = detectPlatform(text);
   $('videoPanel').classList.add('hidden');
   $('biliOptions').classList.add('hidden');
-  biliVideo = null; biliPlay = null; dyVideo = null; apVideo = null; tgVideo = null;
+  biliVideo = null; biliPlay = null; dyVideo = null; apVideo = null; tgVideo = null; wxArticle = null;
   $('downloadBtn').disabled = true;
   try {
     if (!p) {
@@ -86,6 +89,7 @@ async function parseShare() {
     if (p === 'bilibili') await parseBili(text);
     else if (p === 'alipay') await parseAlipay(text);
     else if (p === 'telegram') await parseTelegram(text);
+    else if (p === 'wechat') await parseWechat(text);
     else await parseDouyin(text);
   } catch (e) {
     dlStatus('出错:' + ((e && e.message) || e));
@@ -95,9 +99,16 @@ async function parseShare() {
 function updatePlatformBadgeFor(p) {
   const b = $('platformBadge');
   if (!p) { b.classList.add('hidden'); return; }
+  const meta = {
+    bilibili: ['badge-bili', '识别到:哔哩哔哩'],
+    alipay: ['badge-ap', '识别到:支付宝'],
+    telegram: ['badge-tg', '识别到:Telegram'],
+    wechat: ['badge-wx', '识别到:微信公众号'],
+    douyin: ['badge-dy', '识别到:抖音'],
+  }[p] || ['badge-dy', '识别到:抖音'];
   b.classList.remove('hidden');
-  b.className = 'plat-badge ' + (p === 'bilibili' ? 'badge-bili' : p === 'alipay' ? 'badge-ap' : p === 'telegram' ? 'badge-tg' : 'badge-dy');
-  b.textContent = p === 'bilibili' ? '识别到:哔哩哔哩' : p === 'alipay' ? '识别到:支付宝' : p === 'telegram' ? '识别到:Telegram' : '识别到:抖音';
+  b.className = 'plat-badge ' + meta[0];
+  b.textContent = meta[1];
 }
 
 async function parseBili(text) {
@@ -213,6 +224,38 @@ async function parseAlipay(text) {
   $('downloadBtn').disabled = false;
 }
 
+/* 公众号图文 / 图片消息:图片消息的无水印原图在 original_info 里,
+   页面上的水印只是客户端叠的图层 —— 原图和压缩图本身都是干净的。 */
+async function parseWechat(text) {
+  dlStatus('解析中…');
+  const r = await window.bili.fetchWechatArticle(text);
+  if (!r || !r.ok) { dlStatus('解析失败:' + ((r && r.message) || '无响应')); return; }
+  wxArticle = r;
+  const modes = r.modes || [];
+  const first = modes[0] || { images: [] };
+  $('videoPanel').classList.remove('hidden');
+  $('vTitle').textContent = r.title || '公众号图集';
+  const meta = ['公众号', r.kind === 'images' ? '图片消息' : '图文', r.count + ' 张'];
+  if (r.hasCover) meta.push('含封面');
+  if (first.totalText) meta.push('约 ' + first.totalText);
+  $('vMeta').textContent = meta.join(' · ');
+  renderImgStrip((first.images || []).map((it) => [it.thumb || it.url]));
+  // 分 P 那格对公众号没意义;「清晰度」这一格改成 原图 / 压缩图 两档
+  $('pageWrap').classList.add('hidden');
+  if (modes.length) {
+    $('biliOptions').classList.remove('hidden');
+    $('qualitySel').innerHTML = modes
+      .map((m, i) => '<option value="' + i + '">' + esc(m.label) + (m.totalText ? ' · 约 ' + esc(m.totalText) : '') + '</option>')
+      .join('');
+  } else {
+    $('biliOptions').classList.add('hidden');
+    $('qualitySel').innerHTML = '';
+  }
+  $('downloadBtn').textContent = '选择文件夹并保存图集';
+  dlStatus('');
+  $('downloadBtn').disabled = false;
+}
+
 /* Telegram 公开频道帖:一条 widget 页就出结果。
    注意它和别的平台最大的不同 —— 能不能解析取决于频道有没有开网页预览,
    关了的频道匿名一律拿不到(渲染层只能如实转述). */
@@ -277,6 +320,7 @@ async function startDownload() {
   if (dlPlatform === 'bilibili') return startBiliDownload();
   if (dlPlatform === 'alipay') return startAlipayDownload();
   if (dlPlatform === 'telegram') return startTelegramDownload();
+  if (dlPlatform === 'wechat') return startWechatDownload();
   if (dlPlatform === 'douyin') {
     if (dyVideo && dyVideo.kind === 'images') return startDyImageDownload();
     return startDouyinDownload();
@@ -305,6 +349,37 @@ async function startAlipayDownload() {
     if (!r.ok) throw new Error(r.message);
     setDlBar(100);
     dlStatus('✅ 已保存:' + (r.dest || savePath));
+  } catch (e) {
+    dlStatus('❌ 下载失败:' + ((e && e.message) || e));
+  } finally {
+    dlRunning = false;
+    $('downloadBtn').disabled = false;
+    $('parseBtn').disabled = false;
+  }
+}
+
+/* 公众号图集:选父目录 → 主进程在其中建同名子目录;封面存 封面.jpg,其余 01.jpg… */
+async function startWechatDownload() {
+  const v = wxArticle;
+  if (!v) return;
+  const modes = v.modes || [];
+  const mode = modes[Number($('qualitySel').value) || 0] || modes[0];
+  const imgs = (mode && mode.images) || [];
+  if (!imgs.length) { dlStatus('没有可下载的图片'); return; }
+  const dir = await window.bili.pickDir('选择保存图集的文件夹（会在其中新建子文件夹）');
+  if (!dir) return;
+  dlRunning = true;
+  $('downloadBtn').disabled = true;
+  $('parseBtn').disabled = true;
+  setDlBar(0);
+  dlStatus('下载图集…(' + (mode.label || '图片') + ')');
+  try {
+    const images = imgs.map((it) => [it.url].concat(it.fallback ? [it.fallback] : []));
+    const names = imgs.map((it) => (it.label === '封面' ? '封面' : ''));
+    const r = await window.bili.downloadWechatImages({ images: images, names: names, destDir: dir, title: v.title });
+    if (!r.ok) throw new Error(r.message || '下载失败');
+    setDlBar(100);
+    dlStatus('✅ 已保存 ' + r.saved + ' 张到:' + r.dir + (r.failed ? '（' + r.failed + ' 张失败）' : ''));
   } catch (e) {
     dlStatus('❌ 下载失败:' + ((e && e.message) || e));
   } finally {
@@ -550,7 +625,7 @@ $('pageSel').addEventListener('change', loadBiliPlayurl);
 $('downloadBtn').addEventListener('click', startDownload);
 window.bili.onDlProgress(({ key, received, total }) => {
   const pct = total ? Math.min(100, Math.round((received / total) * 100)) : 0;
-  if (['cur:v', 'cur:a', 'dyv', 'dya', 'dyimg', 'wxv', 'apv', 'tgv'].includes(key)) setDlBar(pct);
+  if (['cur:v', 'cur:a', 'dyv', 'dya', 'dyimg', 'wxv', 'apv', 'tgv', 'wximg'].includes(key)) setDlBar(pct);
 });
 window.bili.onLoginSuccess((info) => setAccount(info));
 
@@ -669,10 +744,9 @@ function renderWxFeeds() {
     head = '<div class="muted">' +
       (wxStreams.length
         ? (keyCount
-            ? '已拿到 ' + keyCount + ' 个 decodeKey，下方视频流可直接导出并解密。'
-            : '视频流已抓到，但没拿到 decodeKey（前 128KB 仍加密）。')
+            ? '已拿到 ' + keyCount + ' 个 decodeKey，可直接导出。'
+            : '视频流已抓到，还缺 decodeKey。')
         : '尚未捕获到视频。') +
-      ' 顺序：<b>退出微信 → 清缓存 → 启动捕获 → 播放视频</b>；日志出现 [WorkerKey] 即拿到 key。标题可用「改名」手动设置。' +
       '</div>';
   }
   const stats = '<div class="muted">已捕获 ' + wxCaptureCount + ' 个分片 · 重建出 ' + wxStreams.length + ' 个视频流</div>';
@@ -684,9 +758,8 @@ function renderWxFeeds() {
   } else if (!keyCount) {
     diagHint = '（worker 已注入，播放一个视频即可拿到 key）';
   }
-  const diag = '<div class="muted">本轮页面/JS 请求 ' + wxPageSeen + ' 次 · 页面注入 ' + wxInjectCount +
-    ' 次 · worker 注入 ' + wxWorkerInject + ' 次 · 收到 Feed ' + wxFeedCount +
-    ' 条 · 已拿到 key ' + keyCount + ' 个（worker ' + workerKeys + ' / 本地缓存 ' + dbKeys + '）' + diagHint + '</div>';
+  const diag = '<div class="muted">页面请求 ' + wxPageSeen + ' · worker 注入 ' + wxWorkerInject +
+    ' · Feed ' + wxFeedCount + ' · key ' + keyCount + diagHint + '</div>';
   const feedHtml = downloadableFeeds.map((f) => {
     const busy = !!wxFeedBusy[f.id];
     const st = wxFeedMsg[f.id] || '';

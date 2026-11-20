@@ -129,7 +129,7 @@ async function fetchOne(urls, opts) {
       const res = await fetch(u, {
         headers: {
           'User-Agent': ua,
-          Referer: 'https://www.douyin.com/',
+          Referer: o.referer || 'https://www.douyin.com/',
           Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
         },
         signal: AbortSignal.timeout(o.timeout || 30000),
@@ -149,11 +149,13 @@ async function fetchOne(urls, opts) {
   return { ok: false, message: (lastErr && lastErr.message) || '没有可用地址' };
 }
 
-/* 顺序下载到 outDir,命名为 01.jpg / 02.jpg...
+/* 顺序下载到 outDir,默认命名为 01.jpg / 02.jpg...
+   names[i] 非空时用该名(公众号封面存成 封面.jpg,且不占编号);
    onProgress({ index, total, ok }) 每张回调一次 */
 async function downloadAll(args) {
   const a = args || {};
   const images = Array.isArray(a.images) ? a.images.slice(0, IMG_MAX) : [];
+  const names = Array.isArray(a.names) ? a.names : [];
   const outDir = String(a.outDir || '');
   if (!images.length) return { ok: false, saved: 0, failed: 0, files: [], message: '没有可下载的图片' };
   if (!outDir) return { ok: false, saved: 0, failed: 0, files: [], message: '未指定保存目录' };
@@ -162,12 +164,14 @@ async function downloadAll(args) {
   const files = [];
   const fails = [];
   const width = Math.max(2, String(images.length).length);
+  let seq = 0;
   for (let i = 0; i < images.length; i += 1) {
-    const r = await fetchOne(images[i], { ua: a.ua, timeout: a.timeout });
+    const r = await fetchOne(images[i], { ua: a.ua, timeout: a.timeout, referer: a.referer });
     if (r.ok) {
-      // 按成功顺序连续编号(失败的不占号),避免出现 01、03 这种空号
-      const pad = String(files.length + 1).padStart(width, '0');
-      const f = path.join(outDir, pad + r.ext);
+      // 固定名(如「封面」)不占编号;其余按成功顺序连续编号(失败的不占号),避免出现 01、03 这种空号
+      const rawName = String(names[i] || '').trim();
+      const base = rawName ? safeName(rawName) : String(++seq).padStart(width, '0');
+      const f = path.join(outDir, base + r.ext);
       await fsp.writeFile(f, r.buf);
       files.push(f);
     } else {

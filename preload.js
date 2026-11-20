@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld('bili', {
   /* 支付宝(生活号 / 视频号) */
   fetchAlipay: (text) => ipcRenderer.invoke('alipay:fetch', text),
   downloadAlipay: (args) => ipcRenderer.invoke('alipay:download', args),
+  /* 微信公众号图文 / 图片消息(无水印图集) */
+  fetchWechatArticle: (text) => ipcRenderer.invoke('wechat:fetch', text),
+  downloadWechatImages: (args) => ipcRenderer.invoke('wechat:download-images', args),
   /* Telegram(公开频道帖;预览关闭的频道会如实报错) */
   fetchTelegram: (text) => ipcRenderer.invoke('telegram:fetch', text),
   downloadTelegram: (args) => ipcRenderer.invoke('telegram:download', args),

@@ -262,6 +262,7 @@ main {
 .badge-dy { background: #161823; color: #25f4ee; border: 1px solid #161823; }
 .badge-ap { background: #e8f3ff; color: #1677ff; border: 1px solid #c2ddff; }
 .badge-tg { background: #e6f5fb; color: #0088cc; border: 1px solid #b6e3f5; }
+.badge-wx { background: #e8f8ee; color: #07a95c; border: 1px solid #b8ecc9; }
 
 /* ---------- 进度 ---------- */
 .progress {

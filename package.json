@@ -32,6 +32,7 @@
       "douyin-images.js",
       "douyin-fetch.js",
       "alipay-fetch.js",
+      "wechat-article.js",
       "telegram-fetch.js",
       "telegram-local.js",
       "telegram-session.js",

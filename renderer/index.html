@@ -31,7 +31,7 @@
     <section class="card">
       <div class="card-head">
         <span class="step step-blue">▶</span><h2>视频下载</h2>
-        <span class="badge-soft">B站 / 抖音 / 支付宝 / Telegram</span>
+        <span class="badge-soft">B站 / 抖音 / 公众号 / 支付宝 / Telegram</span>
       </div>
       <div class="row" style="align-items: flex-start">
         <textarea id="shareInput" rows="2" class="share-input"
@@ -58,15 +58,7 @@
         </div>
         <div id="dlStatus" class="muted"></div>
       </div>
-      <div class="muted" id="dlHint" style="margin-top:12px">B 站高清需登录；抖音、支付宝、Telegram 免登录。Telegram 需本机能连上（走系统代理）；私密频道走 MTProto 时本机需已登录 Telegram Desktop。</div>
-      <details class="more">
-        <summary>支持范围与限制</summary>
-        <div class="more-body">
-          B 站：b23.tv 短链、BV / av 号、视频链接；抖音：v.douyin.com 短链、视频链接、图文（图集）链接；支付宝：生活号 / 视频号分享链接（含 ur.lepudding.com 这类短链，会自动跟跳转识别）；Telegram：公开频道帖（t.me/频道名/帖号）。<br>
-          抖音图集会保存为一组 01.jpg / 02.jpg…（优先取无水印地址）。B 站高清画质需要登录，其他平台公开内容无需登录；直播暂不支持。<br>
-          Telegram 只有「开了网页预览」的公开频道能匿名解析；其余会自动回退到 MTProto（用本机 Telegram Desktop 的登录态直连服务器），私密频道/群只要这个账号在里面就能解析与下载。
-        </div>
-      </details>
+      <div class="muted" id="dlHint" style="margin-top:12px">B 站高清需登录，其他平台免登录。</div>
     </section>
 
     <!-- Telegram 本地缓存恢复(离线:解本机 Telegram Desktop 缓存) -->
@@ -75,7 +67,7 @@
         <span class="step step-blue">◱</span><h2>Telegram 本地缓存恢复</h2>
         <span class="badge-soft">离线 · 私密频道也能取</span>
       </div>
-      <div class="muted hint">不联网。直接解本机 Telegram Desktop 落盘的缓存 —— 网页预览被关掉的频道/群，只要在本机看过，磁盘上就有。</div>
+      <div class="muted hint">不联网，直接解本机 Telegram Desktop 缓存，私密频道也能导出。</div>
       <div class="row">
         <input id="tglPath" class="share-input" placeholder="tdata 路径（留空自动检测）">
         <button id="tglScanBtn" class="btn primary">扫描本地缓存</button>
@@ -104,15 +96,6 @@
         <span id="tglPct" class="muted dl-pct"></span>
       </div>
       <div id="tglLog" class="wxlog"></div>
-      <details class="more">
-        <summary>能取到什么 / 取不到什么</summary>
-        <div class="more-body">
-          <strong>能取到：</strong>图片（jpg/png/webp/gif）、圆视频（webm）、语音，都是从本机缓存解密出来的<b>完整</b>原文件。<br>
-          <strong>视频只能拿到一部分：</strong>视频按 8MB 分片存，文件名是缓存键的哈希、不含偏移，所以分片没法排序拼回整段；只有「索引在文件头」的那种能直接播，其余标注缺索引。<br>
-          <strong>应用锁：</strong>开了口令锁的 Telegram，本地密钥被口令包着，解不开 —— 先在设置里临时关掉应用锁再扫。<br>
-          <strong>隐私：</strong>全程只读本机文件、不联网、不上传；导出目录里的 index.html 可以直接在浏览器里翻看，manifest.json 是同一份清单。
-        </div>
-      </details>
     </section>
 
     <!-- 微信视频号(实验:捕获原始流直存,不解密) -->
@@ -121,15 +104,7 @@
         <span class="step step-blue">⬇</span><h2>微信视频号下载</h2>
         <span class="badge-soft">实验 · 直存原始流</span>
       </div>
-      <div class="muted">退出微信 → 清缓存 → 启动捕获 → 播放视频 → 导出。</div>
-      <details class="more">
-        <summary>为什么要清缓存 / 关于证书</summary>
-        <div class="more-body">
-          <strong>清缓存：</strong>视频号页面的 HTML / JS 若命中微信 WebView 磁盘缓存，浏览器不发请求，代理就注入不了、拿不到 decodeKey。清理只做可恢复的目录重命名，不删任何文件。<br>
-          <strong>怎样算拿到 key：</strong>日志出现 [WorkerKey] 或 [CacheDbKey]。每个视频的 key 独立，不会串用。<br>
-          <strong>证书：</strong>安装后本机信任一个本地根证书（仅当前用户），不用时点「卸载证书」移除。
-        </div>
-      </details>
+      <div class="muted">退出微信 → 清缓存 → 启动捕获 → 播放视频。</div>
       <div class="row" style="margin-top:12px">
         <button id="wxStartBtn" class="btn primary">启动捕获</button>
         <button id="wxStopBtn" class="btn ghost hidden">停止捕获</button>
@@ -154,14 +129,7 @@
         <span class="step step-blue">★</span><h2>表情包导出</h2>
         <span class="badge-soft">微信收藏表情</span>
       </div>
-      <div class="muted">首次会下载导出工具；杀软弹窗请放行，无需退出微信。</div>
-      <details class="more">
-        <summary>工具来源与权限</summary>
-        <div class="more-body">
-          首次使用自动下载开源工具 wxemoticon（约 3.7MB，来自 GitHub，下载后做哈希校验）；也可手动下载 zip 后点「从本地 zip 安装」。<br>
-          导出时工具需要读取微信进程获取数据库密钥，若杀毒软件弹提示请放行。已实测：无需管理员、无需退出微信。
-        </div>
-      </details>
+      <div class="muted">导出微信收藏表情，首次自动下载工具，杀软弹窗请放行。</div>
       <div id="emojiStatus" class="muted" style="margin-top:8px;user-select:text"></div>
       <div class="row" style="margin-top:12px">
         <button id="emojiCheckBtn" class="btn primary">检测环境</button>

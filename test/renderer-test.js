@@ -336,6 +336,30 @@ const PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAA
 const ok = (v) => Promise.resolve(v);
 const noop = () => {};
 
+/* 公众号图集的假解析结果:两档(原图 / 压缩图),封面排在第一张,与主进程返回结构一致 */
+const WX_ARTICLE = {
+  ok: true, platform: 'wechat', kind: 'images',
+  title: '初秋偶尔拍一下三次元题材', count: 2, hasCover: true,
+  modes: [
+    {
+      key: 'original', label: '无水印原图', totalText: '83.0 MB', totalBytes: 85026905,
+      images: [
+        { url: 'https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg', fallback: '', thumb: 'https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg', width: 0, height: 0, size: 120000, sizeText: '117 KB', label: '封面' },
+        { url: 'https://wxapp.tc.qq.com/orig1?x=1', fallback: 'https://mmbiz.qpic.cn/comp1/0?wx_fmt=jpeg', thumb: 'https://mmbiz.qpic.cn/comp1/0?wx_fmt=jpeg', width: 2560, height: 3840, size: 43436654, sizeText: '41.4 MB' },
+        { url: 'https://wxapp.tc.qq.com/orig2?x=2', fallback: 'https://mmbiz.qpic.cn/comp2/0?wx_fmt=jpeg', thumb: 'https://mmbiz.qpic.cn/comp2/0?wx_fmt=jpeg', width: 2560, height: 3840, size: 41590251, sizeText: '39.7 MB' },
+      ],
+    },
+    {
+      key: 'compressed', label: '压缩图', totalText: '2.5 MB', totalBytes: 2549831,
+      images: [
+        { url: 'https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg', fallback: '', thumb: 'https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg', width: 0, height: 0, size: 120000, sizeText: '117 KB', label: '封面' },
+        { url: 'https://mmbiz.qpic.cn/comp1/0?wx_fmt=jpeg', fallback: '', thumb: 'https://mmbiz.qpic.cn/comp1/0?wx_fmt=jpeg', width: 2560, height: 3840, size: 1385631, sizeText: '1.3 MB' },
+        { url: 'https://mmbiz.qpic.cn/comp2/0?wx_fmt=jpeg', fallback: '', thumb: 'https://mmbiz.qpic.cn/comp2/0?wx_fmt=jpeg', width: 2560, height: 3840, size: 1164200, sizeText: '1.1 MB' },
+      ],
+    },
+  ],
+};
+
 function makeBili(log) {
   return {
     tglProbe: () => ok({ ok: true, tdata: 'C:\\Users\\test\\AppData\\Roaming\\Telegram Desktop\\tdata', fileCount: 926, bytes: 1093794296, keyOk: true }),
@@ -355,6 +379,9 @@ function makeBili(log) {
     emojiStatus: () => ok({ tool: { found: true, version: 'x' } }),
     emojiAccounts: () => ok({ ok: true, accounts: [] }),
     pickSave: () => ok(''),
+    pickDir: () => ok('D:\\图集'),
+    fetchWechatArticle: () => ok(WX_ARTICLE),
+    downloadWechatImages: (args) => { log.wxDownload += 1; log.lastWx = args; return ok({ ok: true, dir: 'D:\\图集\\初秋偶尔拍一下三次元题材', saved: args.images.length, failed: 0 }); },
     onDlProgress: noop, onLoginSuccess: noop,
     onWxvCaptured: noop, onWxvLog: noop, onWxvStatus: noop, onWxvFeed: noop,
     onEmojiLog: noop, onEmojiProgress: noop, onEmojiDone: noop,
@@ -371,7 +398,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async function main() {
   const doc = createDocument(path.join(R, 'index.html'));
-  const log = { thumb: 0, export: 0, lastExport: null, progress: null };
+  const log = { thumb: 0, export: 0, lastExport: null, progress: null, wxDownload: 0, lastWx: null };
   const sandbox = {
     document: doc,
     console,
@@ -473,6 +500,30 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   evalIn("(async function(){ await tglProbe(); })()");
   await wait(40);
   check('路径不对时给出提示', /这个路径不存在/.test(st('tglStatus')), st('tglStatus').slice(0, 60));
+
+  /* 10. 公众号图集:识别 → 解析 → 两档下载 */
+  evalIn("var s=document.getElementById('shareInput'); s.value='https://mp.weixin.qq.com/s/OwScMoYsAra3zFF8-sqcfA'; s.dispatchEvent({type:'input'})");
+  await wait(20);
+  check('公众号链接识别到徽章', st('platformBadge') === '识别到:微信公众号' && evalIn("document.getElementById('platformBadge').classList.contains('badge-wx')"), st('platformBadge'));
+  evalIn("document.getElementById('parseBtn').click()");
+  await wait(80);
+  check('解析后显示标题', st('vTitle') === '初秋偶尔拍一下三次元题材', st('vTitle'));
+  check('元信息含张数与体积', /图片消息/.test(st('vMeta')) && /2 张/.test(st('vMeta')) && /83\.0 MB/.test(st('vMeta')), st('vMeta'));
+  check('元信息标明含封面', /含封面/.test(st('vMeta')), st('vMeta'));
+  const wxOpts = evalIn("document.querySelectorAll('#qualitySel option').length");
+  check('清晰度下拉 = 原图/压缩图 两档', wxOpts === 2, wxOpts + ' 档');
+  check('按钮文案为保存图集', /保存图集/.test(st('downloadBtn')), st('downloadBtn'));
+  check('缩略图占位 3 张(封面+2)', evalIn("document.querySelectorAll('#imgStrip img').length") === 3, '');
+  evalIn("document.getElementById('downloadBtn').click()");
+  await wait(80);
+  check('默认下载原图(封面排第一,其余带压缩兜底)', !!(log.lastWx && log.lastWx.images.length === 3 && log.lastWx.images[0].length === 1 && log.lastWx.images[1].length === 2), JSON.stringify(log.lastWx && log.lastWx.images));
+  check('封面带固定名 封面', !!(log.lastWx && Array.isArray(log.lastWx.names) && log.lastWx.names[0] === '封面' && log.lastWx.names[1] === ''), JSON.stringify(log.lastWx && log.lastWx.names));
+  check('下载入参带目录与标题', !!(log.lastWx && log.lastWx.destDir === 'D:\\图集' && log.lastWx.title === '初秋偶尔拍一下三次元题材'), '');
+  check('下载成功文案', /已保存 3 张/.test(st('dlStatus')), st('dlStatus').slice(0, 80));
+  evalIn("document.getElementById('qualitySel').value='1'");
+  evalIn("document.getElementById('downloadBtn').click()");
+  await wait(80);
+  check('切到压缩图后不带原图兜底', !!(log.lastWx && log.lastWx.images[0].length === 1 && /^https:\/\/mmbiz/.test(log.lastWx.images[0][0])), JSON.stringify(log.lastWx && log.lastWx.images[0]));
 
   const failed = checks.filter((c) => !c.pass).length;
   const out = path.join(__dirname, 'result.json');

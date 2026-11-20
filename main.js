@@ -556,6 +556,7 @@ const DY_CAP_PARTITION = 'douyin-video-capture';
 const dyImages = require('./douyin-images');
 const dyShare = require('./douyin-fetch');
 const alipay = require('./alipay-fetch');
+const wechatArticle = require('./wechat-article');
 const telegram = require('./telegram-fetch');
 const tgLocal = require('./telegram-local');
 const tgSession = require('./telegram-session');
@@ -1195,6 +1196,73 @@ async function alipayDownload(args) {
 ipcMain.handle('alipay:download', (_e, args) => alipayDownload(args));
 
 /* ============================================================
+ * 微信公众号图文 / 图片消息:无水印图集
+ *
+ * 链路在 wechat-article.js(纯 HTTPS,不建窗口):
+ *   mp.weixin.qq.com/s/... → 页面内联数据 → original_info 原图直链
+ * 图片消息的水印是客户端叠的图层,cdn_url / original_info 都是干净图。
+ * main.js 只做 IPC 与落盘(复用抖音图集的下载器)。
+ * ============================================================ */
+
+ipcMain.handle('wechat:fetch', async (_e, text) => {
+  const r = await wechatArticle.fetchArticle(text).catch((e) => ({
+    ok: false,
+    code: 'exception',
+    message: (e && e.message) || String(e),
+  }));
+  dyVideoLog('[公众号] ' + JSON.stringify({
+    ok: r.ok,
+    code: r.code || '',
+    kind: r.kind || '',
+    title: r.title || '',
+    count: r.count || 0,
+    modes: (r.modes || []).map((m) => m.key + ':' + m.images.length),
+    tries: r.tries || [],
+  }));
+  return r;
+});
+
+async function wechatDownloadImages(args) {
+  const a = args || {};
+  const images = (Array.isArray(a.images) ? a.images : [])
+    .map((x) => (Array.isArray(x) ? x : [x]))
+    .map((x) => x.filter((u) => /^https?:\/\//i.test(String(u || ''))))
+    .filter((x) => x.length);
+  if (!images.length) return { ok: false, message: '没有可下载的图片' };
+  try {
+    const parent = String(a.destDir || '').trim() || app.getPath('pictures');
+    const name = dyImages.safeName(a.title || '公众号图集');
+    let outDir = path.join(parent, name);
+    let n = 2;
+    while (fs.existsSync(outDir)) {
+      outDir = path.join(parent, name + ' (' + n + ')');
+      n += 1;
+      if (n > 500) break;
+    }
+    dyVideoLog('[公众号] 图集下载开始:共 ' + images.length + ' 张 -> ' + outDir);
+    const r = await dyImages.downloadAll({
+      images: images,
+      names: Array.isArray(a.names) ? a.names : [],
+      outDir: outDir,
+      ua: UA,
+      referer: 'https://mp.weixin.qq.com/',
+      timeout: 120000, // 原图单张可达 40MB+,30 秒不够
+      onProgress: function (p) {
+        sendToMain('dl:progress', { key: 'wximg', received: p.index, total: p.total });
+      },
+    });
+    dyVideoLog('[公众号] 图集下载结束:成功 ' + r.saved + ' 张,失败 ' + r.failed + ' 张');
+    return { ok: r.ok, dir: outDir, saved: r.saved, failed: r.failed, message: r.message || '' };
+  } catch (e) {
+    const msg = (e && e.message) || String(e);
+    dyVideoLog('[公众号] 图集下载异常:' + msg);
+    return { ok: false, message: msg };
+  }
+}
+
+ipcMain.handle('wechat:download-images', (_e, args) => wechatDownloadImages(args));
+
+/* ============================================================
  * Telegram 公开频道帖:解析与下载
  *
  * 链路在 telegram-fetch.js(自带 CONNECT 代理 + HTTP/1.1 客户端):
@@ -1711,6 +1779,8 @@ if (!gotTheLock) {
     if (dpi >= 0) { runDyProbe(process.argv[dpi + 1] || ''); return; }
     const apProbeIdx = process.argv.indexOf('--ap-probe');
     if (apProbeIdx >= 0) { runApProbe(process.argv[apProbeIdx + 1] || ''); return; }
+    const wxArtProbeIdx = process.argv.indexOf('--wxarticle-probe');
+    if (wxArtProbeIdx >= 0) { runWxArticleProbe(process.argv[wxArtProbeIdx + 1] || ''); return; }
     const tgProbeIdx = process.argv.indexOf('--tg-probe');
     if (tgProbeIdx >= 0) { runTgProbe(process.argv[tgProbeIdx + 1] || ''); return; }
     const tglProbeIdx = process.argv.indexOf('--tglocal-probe');
@@ -1842,6 +1912,70 @@ async function runApProbe(link) {
     title: '支付宝解析探头',
     message: good
       ? '解析成功:' + (out.parse.qualities || []).length + ' 个清晰度' + (out.download && out.download.ok ? ',已下载' : '')
+      : '解析未成功,结果已保存',
+    detail: text.slice(0, 1600) + (file ? '\n\n文件:' + file : ''),
+    buttons: ['好'],
+  });
+  app.quit();
+}
+
+/* 公众号图文/图片消息探头:只解析不整包下载(原图单张可达 40MB+),
+   顺手 HEAD 校验前两张直链。
+     B站一键取关助手.exe --wxarticle-probe "https://mp.weixin.qq.com/s/xxxx" */
+async function runWxArticleProbe(link) {
+  const out = { time: new Date().toISOString(), link: String(link || '').slice(0, 300), logFile: dyLogFile() };
+  try {
+    const r = await wechatArticle.fetchArticle(link);
+    out.parse = {
+      ok: r.ok,
+      code: r.code || '',
+      message: r.message || '',
+      kind: r.kind || '',
+      title: r.title || '',
+      count: r.count || 0,
+      modes: (r.modes || []).map(function (m) {
+        return {
+          key: m.key,
+          label: m.label,
+          images: (m.images || []).length,
+          totalText: m.totalText || '',
+          first: ((m.images || [])[0] || {}).url || '',
+        };
+      }),
+      tries: r.tries || [],
+    };
+    if (r.ok) {
+      const first = (((r.modes || [])[0] || {}).images || []).slice(0, 2);
+      out.head = await Promise.all(first.map(async function (img) {
+        try {
+          const res = await fetch(img.url, {
+            method: 'HEAD',
+            headers: { 'User-Agent': UA, Referer: 'https://mp.weixin.qq.com/' },
+            signal: AbortSignal.timeout(15000),
+          });
+          return { status: res.status, type: res.headers.get('content-type'), length: Number(res.headers.get('content-length') || 0) };
+        } catch (e) {
+          return { error: (e && e.message) || String(e) };
+        }
+      }));
+    }
+  } catch (e) {
+    out.error = String((e && e.stack) || e).slice(0, 800);
+  }
+  const text = JSON.stringify(out, null, 2);
+  let file = '';
+  try {
+    file = path.join(app.getPath('userData'), 'wxarticle-probe.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text, 'utf8');
+  } catch (e) { /* ignore */ }
+  dyVideoLog('[公众号探头] ' + text.replace(/\s+/g, ' ').slice(0, 1500));
+  const good = !!(out.parse && out.parse.ok);
+  dialog.showMessageBox({
+    type: 'info',
+    title: '公众号图集探头',
+    message: good
+      ? '解析成功:' + out.parse.count + ' 张(' + (out.parse.modes || []).map(function (m) { return m.label + ' ' + m.images; }).join(' / ') + ')'
       : '解析未成功,结果已保存',
     detail: text.slice(0, 1600) + (file ? '\n\n文件:' + file : ''),
     buttons: ['好'],
